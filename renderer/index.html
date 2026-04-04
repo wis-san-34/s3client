@@ -1,0 +1,1014 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>S3 Desktop Client</title>
+  <style>
+    /* Clean UI override tokens */
+    :root {
+      --bg: #f4f6fb;
+      --surface: #ffffff;
+      --surface-soft: #f8faff;
+      --text: #1f2937;
+      --text-muted: #667085;
+      --line: #e5e7eb;
+      --accent: #2563eb;
+      --accent-soft: #e8efff;
+      --danger: #dc2626;
+      --success: #16a34a;
+      font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    [data-theme="dark"] {
+      --bg: #0f172a;
+      --surface: #111827;
+      --surface-soft: #0b1220;
+      --text: #e5e7eb;
+      --text-muted: #94a3b8;
+      --line: #243244;
+      --accent: #60a5fa;
+      --accent-soft: rgba(96,165,250,0.18);
+      --danger: #f87171;
+      --success: #4ade80;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+    }
+    header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    [data-theme="dark"] header {
+      background: rgba(17, 24, 39, 0.9);
+    }
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+      min-width: 240px;
+    }
+    .logo-badge {
+      width: 52px;
+      height: 52px;
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 20% 18%, rgba(255,255,255,0.35), rgba(255,255,255,0) 42%),
+        linear-gradient(145deg, #22d3ee 0%, #0ea5e9 52%, #2563eb 100%);
+      border: 1px solid rgba(186, 230, 253, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 10px 30px rgba(14, 165, 233, 0.35), inset 0 1px 0 rgba(255,255,255,0.3);
+      position: relative;
+      overflow: hidden;
+    }
+    .logo-badge::after {
+      content: "";
+      position: absolute;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      bottom: -16px;
+      right: -12px;
+      background: rgba(11,16,32,0.22);
+      pointer-events: none;
+    }
+    .logo-mark {
+      width: 30px;
+      height: 30px;
+      display: block;
+      filter: drop-shadow(0 1px 0 rgba(255,255,255,0.15));
+    }
+    .logo-wordmark {
+      margin-top: 2px;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #1d4ed8;
+      font-weight: 700;
+    }
+    .nav-group {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+    .nav-left,
+    .nav-right {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    h1 {
+      margin: 0;
+      font-size: 19px;
+      letter-spacing: 0.2px;
+    }
+    main {
+      display: grid;
+      grid-template-columns: 310px 1fr;
+      gap: 14px;
+      padding: 14px 16px 24px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 18px rgba(16, 24, 40, 0.04);
+    }
+    .stack { display: flex; flex-direction: column; gap: 10px; }
+    label { font-size: 13px; color: var(--text-muted); }
+    input, button, select {
+      width: 100%;
+      box-sizing: border-box;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      padding: 9px 10px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 14px;
+    }
+    input:focus, select:focus {
+      outline: 2px solid rgba(37,99,235,0.18);
+      border-color: rgba(37,99,235,0.45);
+    }
+    button {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.1s ease, background-color 0.1s ease;
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(37,99,235,0.24); }
+    button.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--line); box-shadow: none; }
+    button.secondary:hover { background: var(--surface-soft); box-shadow: none; }
+    button.secondary.danger { background: #fff; border-color: rgba(220,38,38,0.35); color: var(--danger); }
+    .dropzone.dragging { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.2); }
+    .grid { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+    .metric-card { background: var(--surface-soft); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+    .metric-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    .metric-value { font-size: 18px; font-weight: 600; color: var(--text); margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 13px; text-align: left; }
+    th { color: var(--text-muted); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+    .progress-bar {
+      width: 100%;
+      background: #eef2ff;
+      border: 1px solid #dbe3ff;
+      border-radius: 999px;
+      overflow: hidden;
+      height: 10px;
+    }
+    .progress-bar span {
+      display: block;
+      height: 100%;
+      background: var(--accent);
+      width: 0%;
+    }
+    .muted { color: var(--text-muted); font-size: 12px; }
+    .card-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .subtle-toggle { width: auto; padding: 6px 12px; font-size: 12px; }
+    .connection-card.collapsed #connection-fields { display: none; }
+    .explorer-wrapper {
+      max-width: none;
+      margin: 0 auto;
+      width: 100%;
+    }
+    #page-explorer {
+      display: block;
+    }
+    #page-logs,
+    #page-connections {
+      display: block;
+    }
+    .dual-pane {
+      --explorer-left: 50%;
+      --splitter-size: 10px;
+      display: grid;
+      grid-template-columns: minmax(320px, var(--explorer-left)) var(--splitter-size) minmax(320px, 1fr);
+      column-gap: 14px;
+      row-gap: 22px;
+      width: 100%;
+      align-items: stretch;
+    }
+    .explorer-pane {
+      min-height: calc(100vh - 170px);
+    }
+    .explorer-table-scroll {
+      overflow: auto;
+      max-height: calc(100vh - 390px);
+      min-height: 480px;
+    }
+    .dual-pane .splitter {
+      width: 100%;
+      border-radius: 999px;
+      background: rgba(148,163,184,0.3);
+      cursor: col-resize;
+      position: relative;
+      touch-action: none;
+      user-select: none;
+      transition: background-color 0.1s ease, box-shadow 0.1s ease;
+    }
+    .dual-pane .splitter:hover,
+    .dual-pane .splitter:focus-visible {
+      background: rgba(37,99,235,0.45);
+      box-shadow: 0 0 0 2px rgba(37,99,235,0.2);
+      outline: none;
+    }
+    .dual-pane .splitter.active {
+      background: rgba(37,99,235,0.8);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.2);
+    }
+    .dual-pane .splitter::after {
+      content: "";
+      position: absolute;
+      inset: 18% 30%;
+      border-radius: 999px;
+      background: rgba(148,163,184,0.7);
+    }
+    .breadcrumb {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 12px;
+      align-items: center;
+      color: #94a3b8;
+    }
+    .breadcrumb button {
+      border: none;
+      background: none;
+      color: var(--text);
+      cursor: pointer;
+      padding: 0;
+      font-size: 12px;
+    }
+    .breadcrumb button:hover {
+      text-decoration: underline;
+      color: var(--accent);
+    }
+    .sortable {
+      cursor: pointer;
+    }
+    .sortable[data-sort="asc"]::after {
+      content: "▲";
+      font-size: 10px;
+      margin-left: 4px;
+    }
+    .sortable[data-sort="desc"]::after {
+      content: "▼";
+      font-size: 10px;
+      margin-left: 4px;
+    }
+    .entry-cell {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .entry-checkbox {
+      accent-color: #22d3ee;
+    }
+    .transfer-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-size: 10px;
+      margin-left: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: var(--accent-soft);
+      border: 1px solid rgba(37,99,235,0.35);
+      color: var(--accent);
+    }
+    .transfer-badge.error {
+      background: rgba(248,113,113,0.15);
+      border-color: rgba(248,113,113,0.4);
+      color: #f87171;
+    }
+    .transfer-badge.done {
+      background: rgba(74,222,128,0.15);
+      border-color: rgba(74,222,128,0.4);
+      color: #4ade80;
+    }
+    .toast-container {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 10000;
+    }
+    .toast {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 13px;
+      min-width: 220px;
+      color: var(--text);
+      box-shadow: 0 10px 24px rgba(15,23,42,0.1);
+    }
+    .toast.success { border-color: rgba(74,222,128,0.6); }
+    .toast.error { border-color: rgba(248,113,113,0.6); }
+    .toast.info { border-color: rgba(59,130,246,0.6); }
+    .pane-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .connection-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .connection-stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(120px, 1fr));
+      gap: 8px;
+      min-width: 260px;
+    }
+    .connection-stat {
+      background: var(--surface-soft);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .connection-stat-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+    .connection-stat-value {
+      font-size: 16px;
+      font-weight: 700;
+      margin-top: 2px;
+      color: var(--text);
+    }
+    .connection-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(88px, max-content));
+      gap: 6px;
+      justify-content: start;
+      align-items: center;
+    }
+    .connection-actions button {
+      margin: 0;
+      min-width: 88px;
+    }
+    .connection-status-pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,0.5);
+      color: #4b5563;
+      padding: 3px 8px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .connection-status-pill.active {
+      border-color: rgba(74,222,128,0.7);
+      color: var(--success);
+      background: rgba(74,222,128,0.12);
+    }
+    .endpoint-cell {
+      max-width: 640px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .connection-table {
+      table-layout: fixed;
+    }
+    .connection-table th:nth-child(1),
+    .connection-table td:nth-child(1) {
+      width: 120px;
+    }
+    .connection-table th:nth-child(3),
+    .connection-table td:nth-child(3) {
+      width: 130px;
+    }
+    .connection-table th:nth-child(4),
+    .connection-table td:nth-child(4) {
+      width: 100px;
+    }
+    .connection-table th:nth-child(5),
+    .connection-table td:nth-child(5) {
+      width: 220px;
+    }
+    .connection-table td {
+      vertical-align: middle;
+    }
+    .log-toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .log-tools {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .log-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .log-row {
+      display: grid;
+      grid-template-columns: 160px 110px 1fr;
+      gap: 10px;
+      align-items: baseline;
+      padding: 7px 2px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .log-time {
+      color: #94a3b8;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .log-level {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 54px;
+      border-radius: 999px;
+      padding: 2px 8px;
+      border: 1px solid rgba(148,163,184,0.55);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-size: 10px;
+      color: #cbd5e1;
+      background: rgba(148,163,184,0.1);
+    }
+    .log-level.error {
+      color: #fecaca;
+      border-color: rgba(248,113,113,0.7);
+      background: rgba(248,113,113,0.12);
+    }
+    .log-level.success {
+      color: #86efac;
+      border-color: rgba(74,222,128,0.7);
+      background: rgba(74,222,128,0.12);
+    }
+    .log-level.warn {
+      color: #fde68a;
+      border-color: rgba(251,191,36,0.7);
+      background: rgba(251,191,36,0.12);
+    }
+    .log-message {
+      color: var(--text);
+      word-break: break-word;
+    }
+    .explorer-table tbody tr.selected {
+      background: rgba(37,99,235,0.08);
+    }
+    .entry-icon {
+      width: 18px;
+      height: 14px;
+      display: inline-block;
+      border-radius: 3px;
+      margin-right: 6px;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .entry-icon.folder {
+      background: linear-gradient(135deg, #fbbf24, #f59e0b);
+      border: 1px solid #b45309;
+    }
+    .entry-icon.folder::before {
+      content: "";
+      position: absolute;
+      top: -4px;
+      left: 2px;
+      width: 10px;
+      height: 6px;
+      border-radius: 2px 2px 0 0;
+      background: #fde68a;
+      border: 1px solid #b45309;
+    }
+    .entry-icon.file {
+      border: 1px solid #64748b;
+      background: rgba(255,255,255,0.05);
+    }
+    .entry-icon.file::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 5px;
+      width: 6px;
+      height: 2px;
+      background: rgba(148,163,184,0.7);
+      box-shadow: 0 3px 0 rgba(148,163,184,0.7), 0 6px 0 rgba(148,163,184,0.7);
+    }
+    .dropzone-lite {
+      border: 1px dashed #334155;
+      border-radius: 10px;
+      padding: 14px;
+      text-align: center;
+      transition: border-color 0.1s ease;
+    }
+    .dropzone-lite.dragging {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(34,211,238,0.3);
+    }
+    details.advanced-panel {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface-soft);
+      padding: 8px 10px;
+    }
+    details.advanced-panel > summary {
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 600;
+      list-style: none;
+    }
+    details.advanced-panel > summary::-webkit-details-marker {
+      display: none;
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      .header-top { flex-direction: column; align-items: flex-start; }
+      .brand { justify-content: flex-start; }
+      .nav-group { width: 100%; }
+      .nav-group { flex-direction: column; align-items: center; }
+      .nav-left, .nav-right { width: auto; justify-content: center; }
+      #page-explorer { padding: 0 12px 30px; }
+      .dual-pane {
+        grid-template-columns: 1fr !important;
+      }
+      .dual-pane .splitter {
+        display: none;
+      }
+      .explorer-pane {
+        min-height: auto;
+      }
+      .explorer-table-scroll {
+        min-height: 300px;
+        max-height: 55vh;
+      }
+      .connection-actions {
+        grid-template-columns: 1fr;
+      }
+      .connection-table th:nth-child(5),
+      .connection-table td:nth-child(5) {
+        width: 130px;
+      }
+      .log-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-top">
+      <div class="brand">
+        <div class="logo-badge" aria-hidden="true">
+          <svg class="logo-mark" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M21 42h24a10 10 0 0 0 0-20c-1.2 0-2.4.2-3.4.6A12 12 0 0 0 18.3 26 8 8 0 0 0 21 42Z" fill="#071226" fill-opacity="0.9"/>
+            <path d="M24 31h7m0 0-2.3-2.3M31 31l-2.3 2.3M40 33h-7m0 0 2.3-2.3M33 33l2.3 2.3" stroke="#22d3ee" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div>
+          <h1>S3 Desktop Client</h1>
+          <div class="logo-wordmark">transfer manager</div>
+          <div class="muted">Upload, download, and resume transfers on S3</div>
+        </div>
+      </div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-left">
+        <button id="nav-dashboard" class="secondary" style="width:auto;padding:10px 14px;">Dashboard</button>
+        <button id="nav-explorer" class="secondary" style="width:auto;padding:10px 14px;">Explorer</button>
+        <button id="nav-connections" class="secondary" style="width:auto;padding:10px 14px;">Connections</button>
+        <button id="nav-logs" class="secondary" style="width:auto;padding:10px 14px;">Logs</button>
+      </div>
+      <div class="nav-right">
+        <button id="refresh-btn" class="secondary" style="width:auto;padding:10px 14px;">Refresh Transfers</button>
+        <button id="toggle-theme" class="secondary" style="width:auto;padding:10px 14px;">Dark Mode</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="page-dashboard">
+    <div class="stack">
+      <div class="card stack connection-card" id="connection-card">
+        <div class="card-heading">
+          <div>
+            <strong>Connection</strong>
+            <div class="muted">Amazon S3 endpoint and keys</div>
+          </div>
+          <button id="toggle-connection-panel" class="secondary subtle-toggle" aria-controls="connection-fields" aria-expanded="true">Hide Settings</button>
+        </div>
+        <div class="stack" id="connection-fields">
+          <label>Saved connections</label>
+          <div style="display:flex; gap:8px;">
+            <select id="connection-select" style="flex:1;"></select>
+            <button id="load-connection" class="secondary" style="width:110px;">Load</button>
+          </div>
+          <label>Connection name</label>
+          <input id="connection-name" placeholder="My S3 account" />
+          <label>Endpoint (e.g. https://s3.us-east-1.amazonaws.com or custom gateway)</label>
+          <input id="endpoint" placeholder="https://..." />
+          <label>Access Key ID</label>
+          <input id="accessKeyId" />
+          <label>Secret Access Key</label>
+          <input id="secretAccessKey" type="password" />
+          <label>Default Bucket</label>
+          <input id="bucket" placeholder="my-bucket" />
+          <details class="advanced-panel">
+            <summary>Advanced Transfer & Safety Settings</summary>
+            <div class="stack" style="margin-top:10px; gap:10px;">
+              <div class="grid">
+                <div>
+                  <label>Part size (MB)</label>
+                  <input id="partSize" type="number" min="5" value="8" />
+                </div>
+                <div>
+                  <label>Concurrency</label>
+                  <input id="concurrency" type="number" min="1" value="2" />
+                </div>
+              </div>
+              <div class="grid">
+                <div>
+                  <label>Max active transfers</label>
+                  <input id="maxActiveTransfers" type="number" min="1" max="16" value="3" />
+                </div>
+                <div>
+                  <label>Max retries</label>
+                  <input id="maxRetries" type="number" min="0" max="10" value="3" />
+                </div>
+              </div>
+              <div class="grid">
+                <div>
+                  <label>Max active uploads</label>
+                  <input id="maxActiveUploads" type="number" min="1" max="16" value="2" />
+                </div>
+                <div>
+                  <label>Max active downloads</label>
+                  <input id="maxActiveDownloads" type="number" min="1" max="16" value="2" />
+                </div>
+              </div>
+              <div class="stack" style="gap:8px;">
+                <label style="display:flex; align-items:center; gap:8px;">
+                  <input id="softDeleteEnabled" type="checkbox" style="width:auto;" />
+                  Soft delete objects to trash prefix
+                </label>
+                <div>
+                  <label>Trash prefix</label>
+                  <input id="trashPrefix" placeholder=".trash/" />
+                </div>
+              </div>
+            </div>
+          </details>
+          <button id="save-config">Save Connection</button>
+          <div id="config-status" class="muted"></div>
+        </div>
+      </div>
+
+      <div class="card stack">
+        <div><strong>Upload</strong></div>
+        <label>File</label>
+        <div style="display:flex; gap:8px;">
+          <input id="upload-file" placeholder="Select a file" style="flex:1;" />
+          <button id="pick-upload" style="width:120px;">Choose</button>
+        </div>
+        <label>Object name (key)</label>
+        <input id="upload-key" placeholder="object.ext" />
+        <button id="start-upload">Start Upload</button>
+        <div id="upload-status" class="muted"></div>
+      </div>
+
+      <div class="card stack">
+        <div><strong>Download</strong></div>
+        <label>Object key</label>
+        <input id="download-key" placeholder="folder/object.ext" />
+        <label>Destination folder</label>
+        <div style="display:flex; gap:8px;">
+          <input id="download-folder" placeholder="Choose folder" style="flex:1;" />
+          <button id="pick-download-folder" style="width:120px;">Choose</button>
+        </div>
+        <label>Save as (filename)</label>
+        <input id="download-filename" placeholder="object.ext" />
+        <button id="start-download">Start Download</button>
+        <div id="download-status" class="muted"></div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div>
+            <strong>Bucket Browser</strong>
+            <div class="muted">Browse objects in the current bucket and set keys</div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <input id="bucket-prefix" placeholder="Prefix filter (optional)" style="width:220px;">
+            <button id="bucket-up" class="secondary" style="width:auto;padding:8px 12px;">Up</button>
+            <button id="bucket-refresh" class="secondary" style="width:auto;padding:8px 12px;">Refresh</button>
+          </div>
+        </div>
+        <div class="breadcrumb" id="bucket-dashboard-breadcrumb" style="margin-bottom:10px;"></div>
+        <div class="grid" id="bucket-metrics" style="margin-bottom:12px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));">
+          <div class="metric-card">
+            <div class="metric-label">Bucket</div>
+            <div class="metric-value" id="metric-bucket">-</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Objects</div>
+            <div class="metric-value" id="metric-objects">-</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Total Size</div>
+            <div class="metric-value" id="metric-size">-</div>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:30px;"></th>
+              <th>Name</th>
+              <th>Size</th>
+              <th>Modified</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="bucket-body"></tbody>
+        </table>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+          <div id="bucket-status" class="muted"></div>
+          <button id="bucket-more" class="secondary" style="width:auto;padding:8px 12px; display:none;">Load more</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:10px; flex-wrap:wrap;">
+          <div>
+            <strong>Transfers</strong>
+            <div class="muted">Queued, running, and completed uploads/downloads</div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <input id="transfer-search" placeholder="Search transfers" style="width:220px;" />
+            <select id="transfer-filter" style="width:auto; min-width:140px;">
+              <option value="all">All transfers</option>
+              <option value="active">Active</option>
+              <option value="finished">Finished</option>
+              <option value="errors">Errors</option>
+            </select>
+            <button id="clear-finished" class="secondary" style="width:auto;padding:8px 10px;">Clear Finished</button>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Key</th>
+              <th>Status</th>
+              <th>Progress</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="transfer-body"></tbody>
+        </table>
+        <div id="transfer-summary" class="muted" style="margin-top:8px;">
+          Drag queued rows to reorder. Use Prioritize to move a queued transfer up.
+        </div>
+      </div>
+
+      <div class="card dropzone" id="global-dropzone" style="text-align:center; border:1px dashed #334155; border-radius:12px; padding:36px 24px; min-height:160px; display:flex; flex-direction:column; justify-content:center; gap:8px;">
+        <strong>Drag & drop upload</strong>
+        <div class="muted">Drop files anywhere in the window or here to queue an upload</div>
+      </div>
+    </div>
+  </main>
+
+  <main id="page-explorer" style="display:none; padding:18px 22px 30px;">
+    <div class="explorer-wrapper">
+      <div class="dual-pane" id="explorer-split">
+      <section class="card stack explorer-pane" style="gap:12px;">
+        <div class="card-heading">
+          <div>
+            <strong>Local Files</strong>
+            <div class="muted">Browse your PC and drag files into the bucket pane to upload.</div>
+          </div>
+          <div class="pane-actions">
+            <button id="local-upload-selected" class="secondary" style="width:auto;padding:8px 12px;">Upload Selection</button>
+            <button id="local-refresh" class="secondary" style="width:auto;padding:8px 12px;">Refresh</button>
+          </div>
+        </div>
+        <div class="stack" style="gap:8px;">
+          <label class="muted">Current path</label>
+          <div style="display:flex; gap:8px;">
+            <input id="local-browser-path" placeholder="C:\Users\me\Documents" />
+            <button id="local-path-go" class="secondary" style="width:80px;">Go</button>
+          </div>
+          <div class="pane-actions">
+            <button id="local-choose-folder" class="secondary" style="width:auto;padding:6px 12px;">Pick Folder</button>
+            <button id="local-up" class="secondary" style="width:auto;padding:6px 12px;">Up</button>
+            <button id="local-new-folder" class="secondary" style="width:auto;padding:6px 12px;">New Folder</button>
+            <button id="local-rename" class="secondary" style="width:auto;padding:6px 12px;">Rename</button>
+            <button id="local-delete" class="secondary danger" style="width:auto;padding:6px 12px;">Delete</button>
+            <button id="local-open-explorer" class="secondary" style="width:auto;padding:6px 12px;">Open in Explorer</button>
+          </div>
+        </div>
+        <div class="breadcrumb" id="local-breadcrumb"></div>
+        <div class="explorer-table-scroll" id="bucket-explorer-scroll">
+          <table class="explorer-table">
+            <thead>
+              <tr>
+                <th style="width:34px;"></th>
+                <th class="sortable" data-local-sort="name">Name</th>
+                <th class="sortable" data-local-sort="size">Size</th>
+                <th class="sortable" data-local-sort="modified">Modified</th>
+              </tr>
+            </thead>
+            <tbody id="local-browser-body"></tbody>
+          </table>
+        </div>
+        <div id="local-browser-status" class="muted"></div>
+      </section>
+      <div class="splitter" id="explorer-divider" role="separator" aria-label="Resize explorer panes" tabindex="0"></div>
+      <section class="card stack explorer-pane" style="gap:12px;">
+        <div class="card-heading">
+          <div>
+            <strong>Bucket Objects</strong>
+            <div class="muted">Browse your S3 bucket and download to the selected local path.</div>
+          </div>
+          <div class="pane-actions">
+            <button id="bucket-explorer-download" class="secondary" style="width:auto;padding:8px 12px;">Download Selection</button>
+            <button id="bucket-explorer-refresh" class="secondary" style="width:auto;padding:8px 12px;">Refresh</button>
+          </div>
+        </div>
+        <div class="stack" style="gap:8px;">
+          <label class="muted">Current prefix</label>
+          <div style="display:flex; gap:8px;">
+            <input id="bucket-explorer-prefix" placeholder="folder/subfolder/" />
+            <button id="bucket-prefix-go" class="secondary" style="width:80px;">Go</button>
+          </div>
+          <div class="pane-actions">
+            <button id="bucket-explorer-up" class="secondary" style="width:auto;padding:6px 12px;">Up</button>
+            <button id="bucket-explorer-new-folder" class="secondary" style="width:auto;padding:6px 12px;">New Folder</button>
+            <button id="bucket-explorer-rename" class="secondary" style="width:auto;padding:6px 12px;">Rename</button>
+            <button id="bucket-explorer-delete" class="secondary danger" style="width:auto;padding:6px 12px;">Delete</button>
+          </div>
+        </div>
+        <div class="breadcrumb" id="bucket-breadcrumb"></div>
+        <div id="bucket-explorer-dropzone" class="dropzone-lite">
+          Drag files from the local pane or your desktop to upload into this prefix.
+        </div>
+        <div class="explorer-table-scroll">
+          <table class="explorer-table">
+            <thead>
+              <tr>
+                <th style="width:34px;"></th>
+                <th class="sortable" data-bucket-sort="name">Name</th>
+                <th class="sortable" data-bucket-sort="size">Size</th>
+                <th class="sortable" data-bucket-sort="modified">Modified</th>
+              </tr>
+            </thead>
+            <tbody id="bucket-explorer-body"></tbody>
+          </table>
+        </div>
+        <div style="display:flex; justify-content:flex-end;">
+          <button id="bucket-explorer-more" class="secondary" style="width:auto;padding:6px 12px; display:none;">Load More</button>
+        </div>
+        <div id="bucket-explorer-status" class="muted"></div>
+      </section>
+      </div>
+    </div>
+  </main>
+
+  <main id="page-logs" style="display:none; padding:18px 22px 30px;">
+    <div class="card stack">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+        <div>
+          <strong>Activity Log</strong>
+          <div class="muted">Recent actions performed in the app</div>
+        </div>
+        <div class="log-tools">
+          <button id="copy-logs" class="secondary" style="width:auto;padding:8px 12px;">Copy</button>
+          <button id="export-logs" class="secondary" style="width:auto;padding:8px 12px;">Export</button>
+          <button id="clear-logs" class="secondary" style="width:auto;padding:8px 12px;">Clear</button>
+        </div>
+      </div>
+      <div class="log-toolbar">
+        <input id="log-search" placeholder="Search logs..." style="max-width:360px;" />
+        <div class="log-tools">
+          <select id="log-level-filter" style="width:auto; min-width:120px;">
+            <option value="all">All levels</option>
+            <option value="info">Info</option>
+            <option value="success">Success</option>
+            <option value="warn">Warning</option>
+            <option value="error">Error</option>
+          </select>
+          <div class="log-meta" id="log-count">0 entries</div>
+        </div>
+      </div>
+      <div class="card stack" style="margin-bottom:10px;">
+        <div>
+          <strong>Error Diagnostics</strong>
+          <div class="muted">Latest detailed transfer error for support/debugging</div>
+        </div>
+        <div id="error-panel" class="muted" style="white-space:pre-wrap; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px;">No errors yet.</div>
+        <div style="display:flex; justify-content:flex-end;">
+          <button id="copy-error-details" class="secondary" style="width:auto;padding:8px 12px;">Copy Error Details</button>
+        </div>
+      </div>
+      <div id="log-container" style="max-height:500px; overflow:auto; font-size:13px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px;"></div>
+    </div>
+  </main>
+
+  <main id="page-connections" style="display:none; padding:18px 22px 30px;">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:10px; flex-wrap:wrap;">
+        <div>
+          <strong>Connections</strong>
+          <div class="muted">Manage saved endpoints, keys, and buckets</div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="connection-add" class="secondary" style="width:auto;padding:8px 12px;">Add Connection</button>
+          <button id="connection-refresh" class="secondary" style="width:auto;padding:8px 12px;">Refresh</button>
+        </div>
+      </div>
+      <div class="connection-toolbar">
+        <input id="connection-search" placeholder="Search by name, endpoint, or bucket" style="max-width:480px;" />
+        <div class="connection-stats">
+          <div class="connection-stat">
+            <div class="connection-stat-label">Saved</div>
+            <div class="connection-stat-value" id="connection-count">0</div>
+          </div>
+          <div class="connection-stat">
+            <div class="connection-stat-label">Active</div>
+            <div class="connection-stat-value" id="connection-active">-</div>
+          </div>
+        </div>
+      </div>
+      <div id="connection-filter-status" class="muted" style="margin-bottom:8px;"></div>
+      <table class="connection-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Endpoint</th>
+            <th>Bucket</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="connection-body"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <script src="./dialogs.js"></script>
+  <script src="./transfer-store.js"></script>
+  <script src="./renderer.js"></script>
+</body>
+</html>

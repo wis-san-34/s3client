@@ -1,0 +1,19 @@
+directories:
+  output: dist
+  buildResources: build
+appId: com.example.s3client
+productName: S3 Desktop Client
+files:
+  - filter:
+      - src/**/*
+      - renderer/**/*
+      - package.json
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+    - zip
+nsis:
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+electronVersion: 28.3.3

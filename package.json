@@ -1,0 +1,48 @@
+{
+  "name": "s3-desktop-client",
+  "version": "0.1.0",
+  "description": "Desktop uploader/downloader for Amazon S3 (and compatible endpoints) with resume support",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node scripts/start-electron.js",
+    "dev": "node scripts/start-electron.js",
+    "test": "node --test --test-concurrency=1 --test-isolation=none",
+    "icon:build": "powershell -ExecutionPolicy Bypass -File scripts/generate-icon.ps1 && node scripts/build-icon.js",
+    "pack": "electron-builder --dir",
+    "build": "electron-builder"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.515.0",
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.1"
+  },
+  "author": "S3 Desktop Client",
+  "build": {
+    "appId": "com.example.s3client",
+    "productName": "S3 Desktop Client",
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    }
+  }
+}
