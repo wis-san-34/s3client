@@ -1,6 +1,11 @@
 const fs = require("fs");
 const path = require("path");
-const { safeStorage } = require("electron");
+let safeStorage = null;
+try {
+  ({ safeStorage } = require("electron"));
+} catch (err) {
+  safeStorage = null;
+}
 const {
   clampConcurrency,
   clampPartSize,

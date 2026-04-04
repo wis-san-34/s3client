@@ -7,6 +7,7 @@
     "start": "node scripts/start-electron.js",
     "dev": "node scripts/start-electron.js",
     "test": "node --test --test-concurrency=1 --test-isolation=none",
+    "postinstall": "electron-builder install-app-deps",
     "icon:build": "powershell -ExecutionPolicy Bypass -File scripts/generate-icon.ps1 && node scripts/build-icon.js",
     "pack": "electron-builder --dir",
     "build": "electron-builder"
@@ -16,8 +17,8 @@
     "keytar": "^7.9.0"
   },
   "devDependencies": {
-    "electron": "^28.1.0",
-    "electron-builder": "^24.13.3",
+    "electron": "41.1.1",
+    "electron-builder": "26.8.2",
     "png-to-ico": "^3.0.1"
   },
   "author": "S3 Desktop Client",
