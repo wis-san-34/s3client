@@ -1,0 +1,4 @@
+owner: wis-san-34
+repo: s3client-v1
+provider: github
+updaterCacheDirName: s3-desktop-client-updater

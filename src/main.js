@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -228,6 +228,58 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+}
+
+function createAppMenu() {
+  const versionLabel = `Version ${app.getVersion()}`;
+  const template = [
+    ...(process.platform === "darwin"
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: "about" },
+              { type: "separator" },
+              { role: "services" },
+              { type: "separator" },
+              { role: "hide" },
+              { role: "hideOthers" },
+              { role: "unhide" },
+              { type: "separator" },
+              { role: "quit" },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: "File",
+      submenu: [
+        process.platform === "darwin" ? { role: "close" } : { role: "quit" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+    {
+      label: "Help",
+      submenu: [
+        { label: versionLabel, enabled: false },
+      ],
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
 }
 
 function uid() {
@@ -731,6 +783,7 @@ async function abortMultipartUpload(transfer) {
 app.whenReady().then(() => {
   ensureStores();
   app.setAppUserModelId("com.example.s3client");
+  createAppMenu();
   createWindow();
 
   app.on("activate", () => {
@@ -800,6 +853,26 @@ ipcMain.handle("dir:pick", async () => {
 
 ipcMain.handle("path:downloads", () => app.getPath("downloads"));
 
+ipcMain.handle("local:listRoots", async () => {
+  if (process.platform === "win32") {
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+    const roots = [];
+    for (const letter of letters) {
+      const drivePath = `${letter}:\\`;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await fsp.access(drivePath, fs.constants.F_OK);
+        roots.push({ label: `${letter}:`, path: drivePath });
+      } catch {
+        // Ignore missing drives.
+      }
+    }
+    return roots;
+  }
+
+  return [{ label: "/", path: "/" }];
+});
+
 ipcMain.handle("local:list", async (_evt, payload) => {
   const requested = typeof payload?.path === "string" && payload.path.trim() ? payload.path.trim() : os.homedir();
   let targetPath = requested;
@@ -855,6 +928,19 @@ ipcMain.handle("local:list", async (_evt, payload) => {
   const parsed = path.parse(targetPath);
   const parentPath = targetPath === parsed.root ? null : path.dirname(targetPath);
   return { path: targetPath, parentPath, entries };
+});
+
+ipcMain.handle("local:getEntryMeta", async (_evt, payload) => {
+  const fullPath = payload?.path;
+  if (!fullPath) throw new Error("Path is required.");
+  const stats = await fsp.stat(fullPath);
+  return {
+    name: path.basename(fullPath),
+    fullPath,
+    isDirectory: stats.isDirectory(),
+    size: stats.isFile() ? stats.size : null,
+    modified: stats.mtime,
+  };
 });
 
 ipcMain.handle("local:createFolder", async (_evt, payload) => {

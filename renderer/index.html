@@ -267,12 +267,14 @@
       color: #94a3b8;
     }
     .breadcrumb button {
+      width: auto;
       border: none;
       background: none;
       color: var(--text);
       cursor: pointer;
       padding: 0;
       font-size: 12px;
+      flex: 0 0 auto;
     }
     .breadcrumb button:hover {
       text-decoration: underline;
@@ -295,6 +297,22 @@
       display: flex;
       align-items: center;
       gap: 8px;
+    }
+    .drag-grip {
+      width: 14px;
+      height: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      cursor: grab;
+      user-select: none;
+      flex: 0 0 auto;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .drag-grip:active {
+      cursor: grabbing;
     }
     .entry-checkbox {
       accent-color: #22d3ee;
@@ -348,6 +366,83 @@
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
+    }
+    .pane-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .pane-toolbar input {
+      max-width: 280px;
+    }
+    .path-controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .path-controls select {
+      width: 110px;
+      flex: 0 0 110px;
+    }
+    .path-controls input {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .pane-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .summary-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--surface-soft);
+      color: var(--text);
+      font-size: 12px;
+      padding: 5px 10px;
+      white-space: nowrap;
+    }
+    .summary-pill strong {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+    .explorer-inspector {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background:
+        radial-gradient(circle at top right, rgba(37,99,235,0.08), rgba(37,99,235,0) 36%),
+        var(--surface-soft);
+    }
+    .inspector-block {
+      min-width: 0;
+    }
+    .inspector-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .inspector-value {
+      font-size: 13px;
+      color: var(--text);
+      word-break: break-word;
+      line-height: 1.4;
+    }
+    .inspector-value.muted {
+      font-size: 13px;
     }
     .connection-toolbar {
       display: flex;
@@ -844,7 +939,8 @@
         </div>
         <div class="stack" style="gap:8px;">
           <label class="muted">Current path</label>
-          <div style="display:flex; gap:8px;">
+          <div class="path-controls">
+            <select id="local-drive-select" aria-label="Select drive"></select>
             <input id="local-browser-path" placeholder="C:\Users\me\Documents" />
             <button id="local-path-go" class="secondary" style="width:80px;">Go</button>
           </div>
@@ -858,7 +954,25 @@
           </div>
         </div>
         <div class="breadcrumb" id="local-breadcrumb"></div>
-        <div class="explorer-table-scroll" id="bucket-explorer-scroll">
+        <div class="pane-toolbar">
+          <input id="local-explorer-filter" placeholder="Filter local files and folders" />
+          <div class="pane-summary" id="local-explorer-summary"></div>
+        </div>
+        <div class="explorer-inspector" id="local-explorer-inspector">
+          <div class="inspector-block">
+            <div class="inspector-label">Location</div>
+            <div class="inspector-value" id="local-inspector-location">-</div>
+          </div>
+          <div class="inspector-block">
+            <div class="inspector-label">Selection</div>
+            <div class="inspector-value muted" id="local-inspector-selection">No selection</div>
+          </div>
+          <div class="inspector-block">
+            <div class="inspector-label">Details</div>
+            <div class="inspector-value muted" id="local-inspector-details">Browse a folder or select an entry.</div>
+          </div>
+        </div>
+        <div class="explorer-table-scroll" id="local-explorer-scroll">
           <table class="explorer-table">
             <thead>
               <tr>
@@ -899,6 +1013,24 @@
           </div>
         </div>
         <div class="breadcrumb" id="bucket-breadcrumb"></div>
+        <div class="pane-toolbar">
+          <input id="bucket-explorer-filter" placeholder="Filter objects and prefixes" />
+          <div class="pane-summary" id="bucket-explorer-summary"></div>
+        </div>
+        <div class="explorer-inspector" id="bucket-explorer-inspector">
+          <div class="inspector-block">
+            <div class="inspector-label">Prefix</div>
+            <div class="inspector-value" id="bucket-inspector-location">-</div>
+          </div>
+          <div class="inspector-block">
+            <div class="inspector-label">Selection</div>
+            <div class="inspector-value muted" id="bucket-inspector-selection">No selection</div>
+          </div>
+          <div class="inspector-block">
+            <div class="inspector-label">Details</div>
+            <div class="inspector-value muted" id="bucket-inspector-details">Select an object or folder to inspect it.</div>
+          </div>
+        </div>
         <div id="bucket-explorer-dropzone" class="dropzone-lite">
           Drag files from the local pane or your desktop to upload into this prefix.
         </div>

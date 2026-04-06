@@ -1,6 +1,6 @@
 {
   "name": "s3-desktop-client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Desktop uploader/downloader for Amazon S3 (and compatible endpoints) with resume support",
   "main": "src/main.js",
   "scripts": {

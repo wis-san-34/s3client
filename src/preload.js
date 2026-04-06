@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("api", {
   getConfig: () => ipcRenderer.invoke("config:get"),
@@ -10,8 +10,17 @@ contextBridge.exposeInMainWorld("api", {
   deleteConnection: (id) => ipcRenderer.invoke("connection:delete", id),
   pickFile: () => ipcRenderer.invoke("file:pick"),
   pickDir: () => ipcRenderer.invoke("dir:pick"),
+  getPathForFile: (file) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch (err) {
+      return "";
+    }
+  },
   getDefaultDownloadFolder: () => ipcRenderer.invoke("path:downloads"),
+  listLocalRoots: () => ipcRenderer.invoke("local:listRoots"),
   listLocalEntries: (payload) => ipcRenderer.invoke("local:list", payload),
+  getLocalEntryMeta: (payload) => ipcRenderer.invoke("local:getEntryMeta", payload),
   createLocalFolder: (payload) => ipcRenderer.invoke("local:createFolder", payload),
   deleteLocalEntry: (payload) => ipcRenderer.invoke("local:deleteEntry", payload),
   renameLocalEntry: (payload) => ipcRenderer.invoke("local:renameEntry", payload),

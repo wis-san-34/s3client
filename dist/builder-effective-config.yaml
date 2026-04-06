@@ -16,4 +16,4 @@ win:
 nsis:
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
-electronVersion: 28.3.3
+electronVersion: 41.1.1

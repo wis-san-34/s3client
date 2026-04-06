@@ -29,14 +29,14 @@ Outputs go to `dist/` via electron-builder (NSIS installer + zip).
 
 ## Usage
 1) Open the app, fill Endpoint/Access Key/Secret/Bucket, and click **Save**.
-2) Upload: choose a local file and set the destination key (e.g., `backups/db.dump`), then **Start Upload**. Multipart uploads persist their uploadId/parts under the app data folder so a restart can resume.
+2) Upload: choose a local file and set the destination key (e.g., `backups/db.dump`), then **Start Upload**. You can also drag files or folders from Windows Explorer onto the dashboard dropzone, or use the Explorer page to drag local entries into the bucket pane. Multipart uploads persist their uploadId/parts under the app data folder so a restart can resume.
 3) Download: enter the object key, pick a destination folder, optional filename override, then **Start Download**. If the file already exists, the app requests the remaining range.
 4) Transfers table shows progress, bytes, and lets you cancel running jobs.
 
 ## Notes
 - Resume data is stored at `%APPDATA%/s3-desktop/resume.json`; config lives beside it in `config.json`.
-- Multipart part size and concurrency are configurable (default 8 MB, concurrency 2) and now clamp to AWS' required range (5 MB–5 GB, max concurrency 16) so transfers fail fast locally instead of mid-flight.
+- Multipart part size and concurrency are configurable (default 8 MB, concurrency 2) and now clamp to AWS' required range (5 MB-5 GB, max concurrency 16) so transfers fail fast locally instead of mid-flight.
 - Downloads use the same multi-part worker as uploads: you can pause/resume them, they survive restarts, and they honor the concurrency knob just like uploads.
 - The region defaults to `auto` so Cloudflare R2 and other gateways work without extra input. If you rely on a specific region, adjust in `src/store.js` or expose it in the UI.
 - Access keys are encrypted via Electron `safeStorage` before hitting disk, so `config.json` never holds plaintext secrets.
-- The Explorer view supports breadcrumbs, multi-select with shift/ctrl, bulk actions, and a draggable splitter so you can resize local vs. bucket panes to suit your workflow.
+- The Explorer view supports breadcrumbs, live filtering, selection summaries, detail inspectors, multi-select with shift/ctrl, bulk actions, drag-and-drop uploads from the local pane or Windows Explorer, and a draggable splitter so you can resize local vs. bucket panes to suit your workflow.
