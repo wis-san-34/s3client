@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require("electron")
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const { execFile } = require("child_process");
 const { Worker } = require("worker_threads");
 const {
   S3Client,
@@ -24,6 +25,15 @@ const {
   normalizeQueuePriority,
   sanitizeRelativePath,
 } = require("./transferShared");
+const {
+  normalizeError,
+  validateIpcPayload,
+  snapshotConnection,
+  renderableTransfer,
+  persistentTransferSnapshot,
+  createTransferPayload,
+  buildErrorDetails,
+} = require("./mainUtils");
 
 let mainWindow;
 const transfers = new Map();
@@ -33,6 +43,7 @@ let dataDir = "";
 let resumeStore = null;
 let transferHistoryStore = null;
 let configStore = null;
+let _schedulingInProgress = false;
 
 const DEFAULT_MAX_ACTIVE_TRANSFERS = 3;
 const DEFAULT_MAX_ACTIVE_UPLOADS = 2;
@@ -91,22 +102,6 @@ function ensureStores() {
   configStore = new ConfigStore(path.join(dataDir, "config.json"));
 }
 
-function normalizeError(err, fallbackMessage = "Unexpected error") {
-  if (!err) return fallbackMessage;
-  const parts = [];
-  const message = err.message || String(err);
-  if (message) parts.push(message);
-  if (err.name && !message.includes(err.name)) {
-    parts.push(`type=${err.name}`);
-  }
-  if (err.$metadata?.httpStatusCode) {
-    parts.push(`status=${err.$metadata.httpStatusCode}`);
-  }
-  if (err.$metadata?.requestId) {
-    parts.push(`requestId=${err.$metadata.requestId}`);
-  }
-  return parts.join(" | ");
-}
 
 function normalizeTransferSettings(connection) {
   return {
@@ -115,23 +110,6 @@ function normalizeTransferSettings(connection) {
   };
 }
 
-function snapshotConnection(connection) {
-  if (!connection) return null;
-  return {
-    endpoint: connection.endpoint,
-    accessKeyId: connection.accessKeyId,
-    secretAccessKey: connection.secretAccessKey,
-    region: connection.region || "auto",
-    partSize: connection.partSize,
-    concurrency: connection.concurrency,
-    maxActiveTransfers: connection.maxActiveTransfers,
-    maxActiveUploads: connection.maxActiveUploads,
-    maxActiveDownloads: connection.maxActiveDownloads,
-    maxRetries: connection.maxRetries,
-    softDeleteEnabled: connection.softDeleteEnabled,
-    trashPrefix: connection.trashPrefix,
-  };
-}
 
 function buildS3Client(connection) {
   ensureStores();
@@ -286,25 +264,6 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function renderableTransfer(transfer) {
-  if (!transfer) return transfer;
-  const { worker, ...rest } = transfer;
-  return rest;
-}
-
-function persistentTransferSnapshot(transfer) {
-  if (!transfer) return null;
-  const snapshot = renderableTransfer(transfer);
-  if (!snapshot) return null;
-  if (snapshot.connection) {
-    snapshot.connection = {
-      ...snapshot.connection,
-      secretAccessKey: undefined,
-    };
-    delete snapshot.connection.secretAccessKey;
-  }
-  return snapshot;
-}
 
 function publishTransferUpdate(transfer) {
   if (!transfer) return;
@@ -341,26 +300,6 @@ function queueTransferJob(transfer, payload, connection, { priority = "normal", 
   publishTransferUpdate(transfer);
 }
 
-function createTransferPayload(transfer) {
-  if (!transfer) return null;
-  if (transfer.type === "upload") {
-    return {
-      filePath: transfer.filePath,
-      key: transfer.key,
-      bucket: transfer.bucket,
-      maxRetries: transfer.maxRetries,
-    };
-  }
-  if (transfer.type === "download") {
-    return {
-      key: transfer.key,
-      bucket: transfer.bucket,
-      dest: transfer.dest,
-      maxRetries: transfer.maxRetries,
-    };
-  }
-  return null;
-}
 
 function mergeTransferList() {
   ensureStores();
@@ -376,17 +315,6 @@ function mergeTransferList() {
   return Array.from(activeMap.values());
 }
 
-function buildErrorDetails(err, context = {}) {
-  return {
-    operation: context.operation || "",
-    bucket: context.bucket || "",
-    key: context.key || "",
-    requestId: err?.$metadata?.requestId || context.requestId || "",
-    httpStatus: err?.$metadata?.httpStatusCode || context.httpStatus || "",
-    type: err?.name || context.type || "",
-    message: err?.message || context.message || String(err || "Unknown error"),
-  };
-}
 
 function sendToRenderer(channel, payload) {
   if (mainWindow && mainWindow.webContents) {
@@ -508,38 +436,46 @@ function launchTransferWorker(transfer, job, cfg) {
 }
 
 function scheduleQueuedTransfers() {
-  ensureStores();
-  const globalLimit = getMaxActiveTransfers();
-  const uploadLimit = getMaxActiveUploads();
-  const downloadLimit = getMaxActiveDownloads();
-  while (getActiveTransferCount() < globalLimit) {
-    const queued = dequeueNextTransferJob();
-    if (!queued) break;
-    if (
-      (queued.type === "upload" && getActiveTransferCountByType("upload") >= uploadLimit) ||
-      (queued.type === "download" && getActiveTransferCountByType("download") >= downloadLimit)
-    ) {
-      pendingTransfers.push(queued);
-      const hasRunnable = pendingTransfers.some((entry) => {
-        if (entry.type === "upload") return getActiveTransferCountByType("upload") < uploadLimit;
-        if (entry.type === "download") return getActiveTransferCountByType("download") < downloadLimit;
-        return true;
-      });
-      if (!hasRunnable) break;
-      continue;
+  // Guard against concurrent re-entrant calls (e.g. a worker completion event
+  // firing while we are already mid-loop), which could dequeue the same job twice.
+  if (_schedulingInProgress) return;
+  _schedulingInProgress = true;
+  try {
+    ensureStores();
+    const globalLimit = getMaxActiveTransfers();
+    const uploadLimit = getMaxActiveUploads();
+    const downloadLimit = getMaxActiveDownloads();
+    while (getActiveTransferCount() < globalLimit) {
+      const queued = dequeueNextTransferJob();
+      if (!queued) break;
+      if (
+        (queued.type === "upload" && getActiveTransferCountByType("upload") >= uploadLimit) ||
+        (queued.type === "download" && getActiveTransferCountByType("download") >= downloadLimit)
+      ) {
+        pendingTransfers.push(queued);
+        const hasRunnable = pendingTransfers.some((entry) => {
+          if (entry.type === "upload") return getActiveTransferCountByType("upload") < uploadLimit;
+          if (entry.type === "download") return getActiveTransferCountByType("download") < downloadLimit;
+          return true;
+        });
+        if (!hasRunnable) break;
+        continue;
+      }
+      const transfer = transfers.get(queued.id);
+      if (!transfer) continue;
+      const cfg = queued.connection || configStore.getActiveConnection();
+      if (!cfg || !cfg.endpoint || !cfg.accessKeyId || !cfg.secretAccessKey) {
+        transfer.state = "error";
+        transfer.error = "Missing endpoint or credentials";
+        transfer.endedAt = new Date().toISOString();
+        publishTransferUpdate(transfer);
+        transfers.delete(transfer.id);
+        continue;
+      }
+      launchTransferWorker(transfer, queued, cfg);
     }
-    const transfer = transfers.get(queued.id);
-    if (!transfer) continue;
-    const cfg = queued.connection || configStore.getActiveConnection();
-    if (!cfg || !cfg.endpoint || !cfg.accessKeyId || !cfg.secretAccessKey) {
-      transfer.state = "error";
-      transfer.error = "Missing endpoint or credentials";
-      transfer.endedAt = new Date().toISOString();
-      publishTransferUpdate(transfer);
-      transfers.delete(transfer.id);
-      continue;
-    }
-    launchTransferWorker(transfer, queued, cfg);
+  } finally {
+    _schedulingInProgress = false;
   }
 }
 
@@ -809,10 +745,12 @@ ipcMain.handle("config:save", (_evt, payload) => {
   return configStore.getState();
 });
 ipcMain.handle("connection:save", (_evt, payload) => {
+  validateIpcPayload(payload, ["endpoint", "accessKeyId"]);
   ensureStores();
   return configStore.upsertConnection(payload);
 });
 ipcMain.handle("connection:setActive", (_evt, id) => {
+  if (!id || typeof id !== "string") throw new Error("Invalid payload: connection id is required");
   ensureStores();
   configStore.setActiveConnection(id);
   return configStore.getState();
@@ -822,6 +760,7 @@ ipcMain.handle("connection:list", () => {
   return configStore.getState();
 });
 ipcMain.handle("connection:delete", (_evt, id) => {
+  if (!id || typeof id !== "string") throw new Error("Invalid payload: connection id is required");
   ensureStores();
   configStore.removeConnection(id);
   return configStore.getState();
@@ -853,21 +792,54 @@ ipcMain.handle("dir:pick", async () => {
 
 ipcMain.handle("path:downloads", () => app.getPath("downloads"));
 
+function getWindowsVolumeNames() {
+  // Use execFile to avoid shell escaping issues. PowerShell's Get-Volume is
+  // reliable on Windows 10/11 and outputs one "LETTER=Label" line per drive.
+  return new Promise((resolve) => {
+    execFile(
+      "powershell",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$ErrorActionPreference='SilentlyContinue'; Get-Volume | Where-Object { $_.DriveLetter } | ForEach-Object { $_.DriveLetter + '=' + $_.FileSystemLabel }",
+      ],
+      { timeout: 8000, windowsHide: true },
+      (err, stdout) => {
+        if (err || !stdout) { resolve({}); return; }
+        const result = {};
+        for (const line of stdout.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          const eq = trimmed.indexOf("=");
+          if (eq > 0 && /^[A-Z]$/i.test(trimmed[0])) {
+            result[trimmed[0].toUpperCase()] = trimmed.slice(eq + 1).trim();
+          }
+        }
+        resolve(result);
+      }
+    );
+  });
+}
+
 ipcMain.handle("local:listRoots", async () => {
   if (process.platform === "win32") {
     const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-    const roots = [];
+    const activeDrives = [];
     for (const letter of letters) {
       const drivePath = `${letter}:\\`;
       try {
         // eslint-disable-next-line no-await-in-loop
         await fsp.access(drivePath, fs.constants.F_OK);
-        roots.push({ label: `${letter}:`, path: drivePath });
+        activeDrives.push({ letter, path: drivePath });
       } catch {
         // Ignore missing drives.
       }
     }
-    return roots;
+    const volumeNames = await getWindowsVolumeNames().catch(() => ({}));
+    return activeDrives.map(({ letter, path: drivePath }) => {
+      const volName = volumeNames[letter];
+      return { label: volName ? `${letter}: (${volName})` : `${letter}:`, path: drivePath };
+    });
   }
 
   return [{ label: "/", path: "/" }];
@@ -944,9 +916,9 @@ ipcMain.handle("local:getEntryMeta", async (_evt, payload) => {
 });
 
 ipcMain.handle("local:createFolder", async (_evt, payload) => {
-  const parentPath = payload?.parentPath;
-  const rawName = payload?.name || "";
-  if (!parentPath || !rawName.trim()) throw new Error("Parent path and folder name are required.");
+  validateIpcPayload(payload, ["parentPath", "name"]);
+  const parentPath = payload.parentPath;
+  const rawName = payload.name;
   const sanitized = rawName.replace(/[\\/]/g, "").trim();
   if (!sanitized) throw new Error("Folder name is invalid.");
   const target = path.join(parentPath, sanitized);
@@ -955,8 +927,8 @@ ipcMain.handle("local:createFolder", async (_evt, payload) => {
 });
 
 ipcMain.handle("local:deleteEntry", async (_evt, payload) => {
-  const fullPath = payload?.fullPath;
-  if (!fullPath) throw new Error("Path is required to delete.");
+  validateIpcPayload(payload, ["fullPath"]);
+  const fullPath = payload.fullPath;
   const permanent = Boolean(payload?.permanent);
   if (permanent) {
     await fsp.rm(fullPath, { recursive: true, force: true });
@@ -967,9 +939,8 @@ ipcMain.handle("local:deleteEntry", async (_evt, payload) => {
 });
 
 ipcMain.handle("local:renameEntry", async (_evt, payload) => {
-  const fullPath = payload?.fullPath;
-  const newNameRaw = payload?.newName || "";
-  if (!fullPath || !newNameRaw.trim()) throw new Error("Path and new name are required.");
+  validateIpcPayload(payload, ["fullPath", "newName"]);
+  const { fullPath, newName: newNameRaw } = payload;
   const sanitized = newNameRaw.replace(/[\\/]/g, "").trim();
   if (!sanitized) throw new Error("New name is invalid.");
   const newPath = path.join(path.dirname(fullPath), sanitized);
@@ -978,8 +949,8 @@ ipcMain.handle("local:renameEntry", async (_evt, payload) => {
 });
 
 ipcMain.handle("local:openExternal", async (_evt, payload) => {
-  const targetPath = payload?.path;
-  if (!targetPath) throw new Error("Path is required.");
+  validateIpcPayload(payload, ["path"]);
+  const targetPath = payload.path;
   const result = await shell.openPath(targetPath);
   if (result) {
     throw new Error(result);
@@ -987,8 +958,14 @@ ipcMain.handle("local:openExternal", async (_evt, payload) => {
   return { success: true };
 });
 
-ipcMain.handle("upload:start", (_evt, payload) => renderableTransfer(startUpload(payload)));
-ipcMain.handle("download:start", (_evt, payload) => renderableTransfer(startDownload(payload)));
+ipcMain.handle("upload:start", (_evt, payload) => {
+  validateIpcPayload(payload, ["filePath", "key", "bucket"]);
+  return renderableTransfer(startUpload(payload));
+});
+ipcMain.handle("download:start", (_evt, payload) => {
+  validateIpcPayload(payload, ["key", "bucket", "dest"]);
+  return renderableTransfer(startDownload(payload));
+});
 ipcMain.handle("transfers:list", () => {
   const queuedOrder = new Map(pendingTransfers.map((item, idx) => [item.id, idx]));
   const list = mergeTransferList();
@@ -1055,11 +1032,12 @@ ipcMain.handle("bucket:list", async (_evt, payload) => {
 
 ipcMain.handle("bucket:delete", async (_evt, payload) => {
   try {
+    validateIpcPayload(payload, ["key"]);
     ensureStores();
     const active = configStore.getActiveConnection();
-    const bucket = payload?.bucket || active.bucket;
-    const key = payload?.key;
-    if (!bucket || !key) throw new Error("Bucket and key are required");
+    const bucket = payload.bucket || active.bucket;
+    const key = payload.key;
+    if (!bucket) throw new Error("Bucket is required");
     const client = buildS3Client();
     await softDeleteObjects(client, bucket, [key], active);
     await deleteObjectsInBatches(client, bucket, [key]);
@@ -1086,10 +1064,13 @@ ipcMain.handle("bucket:listAll", async (_evt, payload) => {
 
 ipcMain.handle("bucket:deleteMany", async (_evt, payload) => {
   try {
+    if (!payload || !Array.isArray(payload?.keys) || !payload.keys.length) {
+      throw new Error("Invalid payload: keys must be a non-empty array");
+    }
     ensureStores();
     const active = configStore.getActiveConnection();
-    const bucket = payload?.bucket || active.bucket;
-    const keys = Array.from(new Set((payload?.keys || []).filter(Boolean)));
+    const bucket = payload.bucket || active.bucket;
+    const keys = Array.from(new Set(payload.keys.filter(Boolean)));
     if (!bucket || !keys.length) throw new Error("Bucket and keys are required");
     const client = buildS3Client();
     await softDeleteObjects(client, bucket, keys, active);
@@ -1102,14 +1083,13 @@ ipcMain.handle("bucket:deleteMany", async (_evt, payload) => {
 
 ipcMain.handle("bucket:rename", async (_evt, payload) => {
   try {
+    validateIpcPayload(payload, ["key", "newKey"]);
     ensureStores();
     const active = configStore.getActiveConnection();
-    const bucket = payload?.bucket || active.bucket;
-    const sourceKey = payload?.key;
-    const destinationKey = payload?.newKey;
-    if (!bucket || !sourceKey || !destinationKey) {
-      throw new Error("Bucket, key, and newKey are required");
-    }
+    const bucket = payload.bucket || active.bucket;
+    const sourceKey = payload.key;
+    const destinationKey = payload.newKey;
+    if (!bucket) throw new Error("Bucket is required");
     const client = buildS3Client();
     await client.send(
       new CopyObjectCommand({
@@ -1127,11 +1107,12 @@ ipcMain.handle("bucket:rename", async (_evt, payload) => {
 
 ipcMain.handle("bucket:createFolder", async (_evt, payload) => {
   try {
+    validateIpcPayload(payload, ["name"]);
     ensureStores();
     const active = configStore.getActiveConnection();
-    const bucket = payload?.bucket || active.bucket;
-    const prefix = payload?.prefix || "";
-    const rawName = payload?.name || "";
+    const bucket = payload.bucket || active.bucket;
+    const prefix = payload.prefix || "";
+    const rawName = payload.name;
     if (!bucket || !rawName.trim()) throw new Error("Bucket and folder name are required.");
     const sanitizedName = rawName.replace(/^\/+|\/+$/g, "").replace(/[\\]/g, "").trim();
     if (!sanitizedName) throw new Error("Folder name is invalid.");
@@ -1302,14 +1283,18 @@ ipcMain.handle("transfer:reorder", (_evt, payload) => {
 });
 
 ipcMain.handle("transfer:queueBulkDownloads", (_evt, payload) => {
+  if (!payload || !Array.isArray(payload?.items) || !payload.items.length) {
+    throw new Error("Invalid payload: items must be a non-empty array");
+  }
+  if (!payload.destinationRoot) {
+    throw new Error("Invalid payload: destinationRoot is required");
+  }
   ensureStores();
   const active = configStore.getActiveConnection();
-  const bucket = payload?.bucket || active?.bucket;
-  const destinationRoot = payload?.destinationRoot;
-  const items = Array.isArray(payload?.items) ? payload.items : [];
-  if (!bucket || !destinationRoot || !items.length) {
-    throw new Error("Bucket, destinationRoot, and items are required");
-  }
+  const bucket = payload.bucket || active?.bucket;
+  const destinationRoot = payload.destinationRoot;
+  const items = payload.items;
+  if (!bucket) throw new Error("Bucket is required");
   return items.map((item) => {
     const safeRelativePath = sanitizeRelativePath(
       item.relativePath,

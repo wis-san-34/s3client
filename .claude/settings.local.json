@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs wc:*)",
+      "Bash(npm test:*)",
+      "Bash(grep -n \"test\\\\|describe\" d:/sw/github/s3client-v1/test/*.js)",
+      "Bash(node --test --test-isolation=none test/*.test.js)"
+    ]
+  }
+}
