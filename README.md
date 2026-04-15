@@ -24,7 +24,6 @@ Pre-built installers for Windows 10/11 are available on the [Releases](../../rel
 | File | Description |
 |------|-------------|
 | `S3 Desktop Client Setup 0.3.0.exe` | One-click NSIS installer |
-| `S3 Desktop Client-0.3.0-win.zip` | Portable zip (no install needed) |
 
 ---
 
