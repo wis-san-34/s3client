@@ -201,6 +201,27 @@
     }
     .subtle-toggle { width: auto; padding: 6px 12px; font-size: 12px; }
     .connection-card.collapsed #connection-fields { display: none; }
+    .connection-type-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+    .connection-type-tab {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      box-shadow: none;
+    }
+    .connection-type-tab.active {
+      background: var(--surface);
+      border-color: var(--line);
+      color: var(--text);
+    }
+    .connection-layout[hidden] { display: none; }
     .explorer-wrapper {
       max-width: none;
       margin: 0 auto;
@@ -737,7 +758,7 @@
         <div class="card-heading">
           <div>
             <strong>Connection</strong>
-            <div class="muted">Amazon S3 endpoint and keys</div>
+            <div class="muted">Amazon S3, FTP, or FTPS connection details</div>
           </div>
           <button id="toggle-connection-panel" class="secondary subtle-toggle" aria-controls="connection-fields" aria-expanded="true">Hide Settings</button>
         </div>
@@ -749,15 +770,59 @@
           </div>
           <label>Connection name</label>
           <input id="connection-name" placeholder="My S3 account" />
-          <label>Endpoint (e.g. https://s3.us-east-1.amazonaws.com or custom gateway)</label>
-          <input id="endpoint" placeholder="https://..." />
-          <label>Access Key ID</label>
-          <input id="accessKeyId" />
-          <label>Secret Access Key</label>
-          <input id="secretAccessKey" type="password" />
-          <label>Default Bucket</label>
-          <input id="bucket" placeholder="my-bucket" />
-          <details class="advanced-panel">
+          <label>Connection type</label>
+          <div class="connection-type-tabs" role="tablist" aria-label="Connection type">
+            <button id="connection-type-s3" type="button" class="connection-type-tab active" data-connection-type="s3">S3</button>
+            <button id="connection-type-ftp" type="button" class="connection-type-tab" data-connection-type="ftp">FTP / FTPS</button>
+          </div>
+          <div id="s3-connection-layout" class="stack connection-layout">
+            <label>Endpoint (e.g. https://s3.us-east-1.amazonaws.com or custom gateway)</label>
+            <input id="endpoint" placeholder="https://..." />
+            <label>Access Key ID</label>
+            <input id="accessKeyId" />
+            <label>Secret Access Key</label>
+            <input id="secretAccessKey" type="password" />
+            <label>Default Bucket</label>
+            <input id="bucket" placeholder="my-bucket" />
+          </div>
+          <div id="ftp-connection-layout" class="stack connection-layout" hidden>
+            <div class="grid">
+              <div>
+                <label>Protocol</label>
+                <select id="ftp-protocol">
+                  <option value="ftp">FTP</option>
+                  <option value="ftps">FTPS</option>
+                </select>
+              </div>
+              <div>
+                <label>Port</label>
+                <input id="ftp-port" type="number" min="1" max="65535" value="21" />
+              </div>
+            </div>
+            <label>Server host</label>
+            <input id="ftp-host" placeholder="ftp.example.com" />
+            <label>Username</label>
+            <input id="ftp-username" />
+            <label>Password</label>
+            <input id="ftp-password" type="password" />
+            <label>Default remote path</label>
+            <input id="ftp-remote-path" placeholder="/" />
+            <div class="grid">
+              <div>
+                <label>FTPS mode</label>
+                <select id="ftp-secure-mode">
+                  <option value="explicit">Explicit TLS</option>
+                  <option value="implicit">Implicit TLS</option>
+                  <option value="none">Plain FTP</option>
+                </select>
+              </div>
+              <label style="display:flex; align-items:center; gap:8px; margin-top:22px;">
+                <input id="ftp-reject-unauthorized" type="checkbox" checked style="width:auto;" />
+                Verify TLS certificate
+              </label>
+            </div>
+          </div>
+          <details id="s3-advanced-settings" class="advanced-panel">
             <summary>Advanced Transfer & Safety Settings</summary>
             <div class="stack" style="margin-top:10px; gap:10px;">
               <div class="grid">
@@ -1102,15 +1167,17 @@
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:10px; flex-wrap:wrap;">
         <div>
           <strong>Connections</strong>
-          <div class="muted">Manage saved endpoints, keys, and buckets</div>
+          <div class="muted">Manage saved S3, FTP, and FTPS connections</div>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="connection-add" class="secondary" style="width:auto;padding:8px 12px;">Add Connection</button>
+          <button id="connection-import" class="secondary" style="width:auto;padding:8px 12px;">Import</button>
+          <button id="connection-export" class="secondary" style="width:auto;padding:8px 12px;">Export</button>
           <button id="connection-refresh" class="secondary" style="width:auto;padding:8px 12px;">Refresh</button>
         </div>
       </div>
       <div class="connection-toolbar">
-        <input id="connection-search" placeholder="Search by name, endpoint, or bucket" style="max-width:480px;" />
+        <input id="connection-search" placeholder="Search by name, endpoint, host, or bucket" style="max-width:480px;" />
         <div class="connection-stats">
           <div class="connection-stat">
             <div class="connection-stat-label">Saved</div>
@@ -1127,8 +1194,8 @@
         <thead>
           <tr>
             <th>Name</th>
-            <th>Endpoint</th>
-            <th>Bucket</th>
+            <th>Endpoint / Host</th>
+            <th>Target</th>
             <th>Status</th>
             <th>Action</th>
           </tr>

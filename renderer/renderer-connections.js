@@ -78,7 +78,7 @@ function renderConnections(state) {
   connections.forEach((c) => {
     const opt = document.createElement("option");
     opt.value = c.id;
-    opt.innerText = c.name || c.endpoint;
+    opt.innerText = `${(c.type || "s3").toUpperCase()} - ${c.name || c.endpoint || c.host}`;
     if (c.id === activeConnectionId) opt.selected = true;
     connectionSelect.appendChild(opt);
   });
@@ -98,7 +98,7 @@ function renderConnectionTable() {
   const query = connectionSearchInput?.value?.trim().toLowerCase() || "";
   const filteredConnections = query
     ? connections.filter((c) => {
-        const haystack = `${c.name || ""} ${c.endpoint || ""} ${c.bucket || ""}`.toLowerCase();
+        const haystack = `${c.name || ""} ${c.endpoint || ""} ${c.host || ""} ${c.bucket || ""} ${c.remotePath || ""} ${c.type || ""}`.toLowerCase();
         return haystack.includes(query);
       })
     : connections;
@@ -138,10 +138,11 @@ function renderConnectionTable() {
     name.innerText = c.name || "(unnamed)";
     const endpoint = document.createElement("td");
     endpoint.className = "endpoint-cell";
-    endpoint.innerText = c.endpoint;
-    endpoint.title = c.endpoint || "";
+    const connectionTarget = c.type === "ftp" || c.type === "ftps" ? `${c.host || c.endpoint}:${c.port || 21}` : c.endpoint;
+    endpoint.innerText = connectionTarget;
+    endpoint.title = connectionTarget || "";
     const bucket = document.createElement("td");
-    bucket.innerText = c.bucket || "-";
+    bucket.innerText = c.type === "ftp" || c.type === "ftps" ? c.remotePath || "/" : c.bucket || "-";
     const status = document.createElement("td");
     const statusPill = document.createElement("span");
     const isActive = c.id === activeConnectionId;
@@ -161,7 +162,7 @@ function renderConnectionTable() {
       const state = await window.api.listConnections();
       renderConnections(state);
       applyConnection(state.current);
-      addLog(`Loaded connection: ${c.name || c.endpoint}`);
+      addLog(`Loaded connection: ${c.name || c.endpoint || c.host}`);
       setActivePage("dashboard");
     };
 
@@ -175,25 +176,56 @@ function renderConnectionTable() {
       const state = await window.api.listConnections();
       renderConnections(state);
       applyConnection(state.current || state);
-      addLog(`Deleted connection: ${c.name || c.endpoint}`);
+      addLog(`Deleted connection: ${c.name || c.endpoint || c.host}`);
     };
 
-    const bucketBtn = document.createElement("button");
-    bucketBtn.className = "secondary";
-    bucketBtn.style.width = "auto";
-    bucketBtn.style.padding = "6px 10px";
-    bucketBtn.innerText = "Set Bucket";
-    bucketBtn.onclick = async () => {
-      const newBucket = await showInputPrompt({
-        title: "Bucket name",
-        defaultValue: c.bucket || "",
+    const targetBtn = document.createElement("button");
+    targetBtn.className = "secondary";
+    targetBtn.style.width = "auto";
+    targetBtn.style.padding = "6px 10px";
+    targetBtn.innerText = c.type === "ftp" || c.type === "ftps" ? "Set Path" : "Set Bucket";
+    targetBtn.onclick = async () => {
+      const isFtp = c.type === "ftp" || c.type === "ftps";
+      const value = await showInputPrompt({
+        title: isFtp ? "Remote path" : "Bucket name",
+        defaultValue: isFtp ? c.remotePath || "/" : c.bucket || "",
       });
-      if (newBucket) {
-        await window.api.saveConnection({ ...c, bucket: newBucket, id: c.id });
+      if (value) {
+        await window.api.saveConnection(isFtp ? { ...c, remotePath: value, id: c.id } : { ...c, bucket: value, id: c.id });
         const state = await window.api.listConnections();
         renderConnections(state);
         applyConnection(state.current || state);
-        addLog(`Updated bucket for ${c.name || c.endpoint}: ${newBucket}`);
+        addLog(`Updated ${isFtp ? "remote path" : "bucket"} for ${c.name || c.endpoint || c.host}: ${value}`);
+      }
+    };
+
+    const exportBtn = document.createElement("button");
+    exportBtn.className = "secondary";
+    exportBtn.style.width = "auto";
+    exportBtn.style.padding = "6px 10px";
+    exportBtn.innerText = "Export";
+    exportBtn.onclick = async () => {
+      try {
+        const encrypt = await showConfirmPrompt({
+          title: "Encrypt export file?",
+          message: "Use a passphrase to protect the exported connection secrets.",
+          okLabel: "Encrypt",
+          cancelLabel: "Export without encryption",
+        });
+        const passphrase = encrypt
+          ? await showInputPrompt({
+              title: "Export passphrase",
+              defaultValue: "",
+              okLabel: "Export",
+              inputType: "password",
+            })
+          : "";
+        if (encrypt && !passphrase) return;
+        const result = await window.api.exportConnections({ id: c.id, passphrase });
+        if (result?.canceled) return;
+        addLog(`Exported connection${result.encrypted ? " with encryption" : ""}: ${c.name || c.endpoint || c.host}`);
+      } catch (err) {
+        addLog(`Export failed for ${c.name || c.endpoint || c.host}: ${err.message}`);
       }
     };
 
@@ -208,11 +240,12 @@ function renderConnectionTable() {
         const state = await window.api.setActiveConnection(c.id);
         renderConnections(state);
         applyConnection(state.current);
-        addLog(`Switched connection: ${c.name || c.endpoint}`);
+        addLog(`Switched connection: ${c.name || c.endpoint || c.host}`);
       };
       actions.appendChild(setActiveBtn);
     }
-    actions.appendChild(bucketBtn);
+    actions.appendChild(targetBtn);
+    actions.appendChild(exportBtn);
     actions.appendChild(delBtn);
 
     row.appendChild(name);
@@ -224,9 +257,40 @@ function renderConnectionTable() {
   });
 }
 
+function setConnectionTypeLayout(type) {
+  const isFtp = type === "ftp" || type === "ftps";
+  if (els.connectionTypeS3) els.connectionTypeS3.classList.toggle("active", !isFtp);
+  if (els.connectionTypeFtp) els.connectionTypeFtp.classList.toggle("active", isFtp);
+  if (els.s3ConnectionLayout) els.s3ConnectionLayout.hidden = isFtp;
+  if (els.ftpConnectionLayout) els.ftpConnectionLayout.hidden = !isFtp;
+  if (els.s3AdvancedSettings) els.s3AdvancedSettings.hidden = isFtp;
+}
+
+function getActiveConnection() {
+  return connections.find((conn) => conn.id === activeConnectionId) || null;
+}
+
+function isFtpConnection(conn = getActiveConnection()) {
+  return conn?.type === "ftp" || conn?.type === "ftps";
+}
+
 // ── Apply active connection to all panels ─────────────────────────────────────
 function applyConnection(conn) {
   if (!conn) return;
+  const connectionType = conn.type || "s3";
+  setConnectionTypeLayout(connectionType);
+  if (els.ftpProtocol) els.ftpProtocol.value = connectionType === "ftps" ? "ftps" : "ftp";
+  if (els.ftpHost) els.ftpHost.value = conn.host || "";
+  if (els.ftpPort) els.ftpPort.value = `${conn.port || 21}`;
+  if (els.ftpUsername) els.ftpUsername.value = conn.username || "";
+  if (els.ftpPassword) {
+    els.ftpPassword.dataset.hasSecret = conn.hasSecret ? "true" : "false";
+    els.ftpPassword.placeholder = conn.hasSecret ? "Password stored securely" : "";
+    els.ftpPassword.value = conn.hasSecret ? "" : conn.secretAccessKey || "";
+  }
+  if (els.ftpRemotePath) els.ftpRemotePath.value = conn.remotePath || "/";
+  if (els.ftpSecureMode) els.ftpSecureMode.value = conn.secureMode || (connectionType === "ftps" ? "explicit" : "none");
+  if (els.ftpRejectUnauthorized) els.ftpRejectUnauthorized.checked = conn.rejectUnauthorized !== false;
   els.endpoint.value = conn.endpoint || "";
   els.accessKeyId.value = conn.accessKeyId || "";
   setSecretInputState(Boolean(conn.hasSecret));
@@ -248,6 +312,14 @@ function applyConnection(conn) {
   if (els.trashPrefix) els.trashPrefix.value = conn.trashPrefix || ".trash/";
   els.connectionName.value = conn.name || "";
   const prefs = getExplorerPrefsForActiveConnection();
+  if (connectionType === "ftp" || connectionType === "ftps") {
+    if (els.configStatus) els.configStatus.innerText = "FTP/FTPS browsing is enabled in the Explorer remote pane.";
+    if (bucketBody) bucketBody.innerHTML = "";
+    if (bucketExplorerBody) bucketExplorerBody.innerHTML = "";
+    loadLocalExplorer(prefs.localPath || explorerState.localPath || undefined);
+    loadBucketExplorer(conn.remotePath || "/", { force: true });
+    return;
+  }
   const dashboardPrefix = normalizePrefix(prefs.dashboardBucketPrefix || "");
   const explorerPrefix = normalizePrefix(prefs.bucketPrefix || "");
   if (els.bucketPrefix) {

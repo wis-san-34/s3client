@@ -6,8 +6,11 @@ contextBridge.exposeInMainWorld("api", {
   saveConnection: (conn) => ipcRenderer.invoke("connection:save", conn),
   setActiveConnection: (id) => ipcRenderer.invoke("connection:setActive", id),
   listConnections: () => ipcRenderer.invoke("connection:list"),
+  exportConnections: (options) => ipcRenderer.invoke("connection:export", options),
+  importConnections: (options) => ipcRenderer.invoke("connection:import", options),
   listAvailableBuckets: () => ipcRenderer.invoke("connection:listAvailableBuckets"),
   deleteConnection: (id) => ipcRenderer.invoke("connection:delete", id),
+  listFtp: (payload) => ipcRenderer.invoke("ftp:list", payload),
   pickFile: () => ipcRenderer.invoke("file:pick"),
   pickDir: () => ipcRenderer.invoke("dir:pick"),
   getPathForFile: (file) => {

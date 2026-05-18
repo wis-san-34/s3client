@@ -74,6 +74,8 @@ const connectionSearchInput = document.getElementById("connection-search");
 const connectionCountEl = document.getElementById("connection-count");
 const connectionActiveEl = document.getElementById("connection-active");
 const connectionFilterStatus = document.getElementById("connection-filter-status");
+const connectionImportBtn = document.getElementById("connection-import");
+const connectionExportBtn = document.getElementById("connection-export");
 const logContainer = document.getElementById("log-container");
 const logSearchInput = document.getElementById("log-search");
 const logLevelFilter = document.getElementById("log-level-filter");
@@ -133,6 +135,19 @@ const els = {
   trashPrefix: document.getElementById("trashPrefix"),
   configStatus: document.getElementById("config-status"),
   connectionName: document.getElementById("connection-name"),
+  connectionTypeS3: document.getElementById("connection-type-s3"),
+  connectionTypeFtp: document.getElementById("connection-type-ftp"),
+  s3ConnectionLayout: document.getElementById("s3-connection-layout"),
+  ftpConnectionLayout: document.getElementById("ftp-connection-layout"),
+  s3AdvancedSettings: document.getElementById("s3-advanced-settings"),
+  ftpProtocol: document.getElementById("ftp-protocol"),
+  ftpHost: document.getElementById("ftp-host"),
+  ftpPort: document.getElementById("ftp-port"),
+  ftpUsername: document.getElementById("ftp-username"),
+  ftpPassword: document.getElementById("ftp-password"),
+  ftpRemotePath: document.getElementById("ftp-remote-path"),
+  ftpSecureMode: document.getElementById("ftp-secure-mode"),
+  ftpRejectUnauthorized: document.getElementById("ftp-reject-unauthorized"),
   bucketPrefix: document.getElementById("bucket-prefix"),
   bucketStatus: document.getElementById("bucket-status"),
   uploadFile: document.getElementById("upload-file"),
@@ -148,7 +163,7 @@ let latestErrorDetails = null;
 let draggedQueuedTransferId = "";
 let isConnectionPanelCollapsed = false;
 const transferStore = window.S3TransferStore.createTransferStore();
-const { showInputPrompt, confirmDeletion } = window.S3Dialogs;
+const { showInputPrompt, showConfirmPrompt, confirmDeletion } = window.S3Dialogs;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MB = 1024 * 1024;
@@ -349,7 +364,10 @@ function buildLocalBreadcrumbSegments(fullPath) {
 }
 
 function buildBucketBreadcrumbSegments(prefix) {
-  const bucketName = els.bucket.value.trim() || "Bucket";
+  const activeConn = typeof getActiveConnection === "function" ? getActiveConnection() : null;
+  const bucketName = activeConn?.type === "ftp" || activeConn?.type === "ftps"
+    ? activeConn.host || activeConn.name || "FTP"
+    : els.bucket.value.trim() || "Bucket";
   const crumbs = [{ label: bucketName, value: "" }];
   if (!prefix) return crumbs;
   const clean = prefix.replace(/^\/+|\/+$/g, "");

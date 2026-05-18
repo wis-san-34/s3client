@@ -472,8 +472,66 @@ function bucketParentPrefix(prefix) {
   return `${trimmed.slice(0, idx + 1)}`;
 }
 
+function normalizeRemotePath(input = "/") {
+  let value = String(input || "/").trim().replace(/\\/g, "/");
+  if (!value) value = "/";
+  if (!value.startsWith("/")) value = `/${value}`;
+  value = value.replace(/\/+/g, "/");
+  if (value.length > 1) value = value.replace(/\/+$/, "");
+  return value || "/";
+}
+
+function remoteParentPath(remotePath) {
+  const normalized = normalizeRemotePath(remotePath);
+  if (normalized === "/") return "/";
+  const idx = normalized.lastIndexOf("/");
+  return idx <= 0 ? "/" : normalized.slice(0, idx);
+}
+
 async function loadBucketExplorer(prefixOverride, options = {}) {
   if (!bucketExplorerBody) return;
+  const activeConn = getActiveConnection();
+  if (isFtpConnection(activeConn)) {
+    const force = Boolean(options.force);
+    const targetPath = normalizeRemotePath(
+      typeof prefixOverride === "string" ? prefixOverride : explorerState.bucketPrefix || activeConn.remotePath || "/"
+    );
+    if (explorerState.bucketLoading && !force) return;
+    const requestSeq = ++bucketExplorerRequestSeq;
+    try {
+      explorerState.bucketLoading = true;
+      if (bucketExplorerStatus) bucketExplorerStatus.innerText = "Loading remote directory...";
+      const res = await window.api.listFtp({ path: targetPath });
+      if (requestSeq !== bucketExplorerRequestSeq) return;
+      const pathChanged = explorerState.bucketPrefix !== res.path;
+      explorerState.bucketPrefix = res.path || targetPath;
+      persistExplorerPrefs({ bucketPrefix: explorerState.bucketPrefix });
+      if (pathChanged) {
+        explorerState.selectedBucketKeys.clear();
+        explorerState.lastBucketIndex = null;
+      }
+      if (bucketExplorerPrefixInput) bucketExplorerPrefixInput.value = explorerState.bucketPrefix;
+      explorerState.bucketNextToken = null;
+      if (bucketExplorerMoreBtn) bucketExplorerMoreBtn.style.display = "none";
+      renderBucketExplorerRows(res.entries || []);
+      setErrorDetails(null);
+      return;
+    } catch (err) {
+      if (requestSeq !== bucketExplorerRequestSeq) return;
+      setErrorDetails({
+        operation: "ftp:list",
+        bucket: activeConn.host || activeConn.endpoint || "",
+        key: targetPath,
+        message: err.message || "Unable to load FTP directory",
+      });
+      if (bucketExplorerStatus) bucketExplorerStatus.innerText = err.message || "Unable to load FTP directory.";
+      return;
+    } finally {
+      if (requestSeq === bucketExplorerRequestSeq) {
+        explorerState.bucketLoading = false;
+      }
+    }
+  }
   const bucket = els.bucket.value.trim();
   if (!bucket) {
     bucketExplorerBody.innerHTML = "";
@@ -593,7 +651,7 @@ function renderBucketExplorerRows(entries = []) {
         loadBucketExplorer(entry.prefix);
       } else if (event.key === "Backspace") {
         event.preventDefault();
-        loadBucketExplorer(bucketParentPrefix(explorerState.bucketPrefix));
+        loadBucketExplorer(isFtpConnection() ? remoteParentPath(explorerState.bucketPrefix) : bucketParentPrefix(explorerState.bucketPrefix));
       }
     });
     row.addEventListener("dblclick", () => {

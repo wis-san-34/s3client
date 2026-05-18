@@ -2,8 +2,10 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require("electron")
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const crypto = require("crypto");
 const { execFile } = require("child_process");
 const { Worker } = require("worker_threads");
+const ftp = require("basic-ftp");
 const {
   S3Client,
   ListObjectsV2Command,
@@ -124,6 +126,85 @@ function buildS3Client(connection) {
       accessKeyId: cfg.accessKeyId,
       secretAccessKey: cfg.secretAccessKey,
     },
+  });
+}
+
+function normalizeFtpRemotePath(input = "/") {
+  let value = String(input || "/").trim().replace(/\\/g, "/");
+  if (!value) value = "/";
+  if (!value.startsWith("/")) value = `/${value}`;
+  value = value.replace(/\/+/g, "/");
+  if (value.length > 1) value = value.replace(/\/+$/, "");
+  return value || "/";
+}
+
+function joinFtpRemotePath(base, child) {
+  const cleanChild = String(child || "").replace(/^\/+/, "");
+  const root = normalizeFtpRemotePath(base);
+  if (!cleanChild) return root;
+  return normalizeFtpRemotePath(root === "/" ? `/${cleanChild}` : `${root}/${cleanChild}`);
+}
+
+async function withFtpClient(connection, operation) {
+  const cfg = connection || configStore.getActiveConnection();
+  if (!cfg || !["ftp", "ftps"].includes(cfg.type)) {
+    throw new Error("Active connection is not FTP/FTPS");
+  }
+  if (!cfg.host || !cfg.username || !cfg.secretAccessKey) {
+    throw new Error("Missing FTP host or credentials");
+  }
+  const client = new ftp.Client(30000);
+  try {
+    await client.access({
+      host: cfg.host,
+      port: Number(cfg.port) || 21,
+      user: cfg.username,
+      password: cfg.secretAccessKey,
+      secure: cfg.type === "ftps" ? (cfg.secureMode === "implicit" ? "implicit" : true) : false,
+      secureOptions: {
+        rejectUnauthorized: cfg.rejectUnauthorized !== false,
+      },
+    });
+    return await operation(client, cfg);
+  } finally {
+    client.close();
+  }
+}
+
+async function listFtpDirectory(payload = {}) {
+  ensureStores();
+  const active = configStore.getActiveConnection();
+  const requestedPath = payload.path || payload.prefix || active.remotePath || "/";
+  const remotePath = normalizeFtpRemotePath(requestedPath);
+  return withFtpClient(active, async (client) => {
+    const items = await client.list(remotePath);
+    const entries = items
+      .filter((item) => item && item.name && item.name !== "." && item.name !== "..")
+      .map((item) => {
+        const isDirectory = item.isDirectory === true || item.type === 2;
+        const fullPath = joinFtpRemotePath(remotePath, item.name);
+        return {
+          type: isDirectory ? "folder" : "object",
+          name: item.name,
+          key: isDirectory ? undefined : fullPath,
+          prefix: isDirectory ? fullPath : undefined,
+          size: isDirectory ? null : item.size || 0,
+          lastModified: item.modifiedAt || item.rawModifiedAt || null,
+          remotePath: fullPath,
+        };
+      });
+    return {
+      path: remotePath,
+      parentPath: remotePath === "/" ? null : normalizeFtpRemotePath(remotePath.slice(0, remotePath.lastIndexOf("/")) || "/"),
+      entries,
+      nextContinuationToken: null,
+      metrics: {
+        bucket: active.name || active.host,
+        objectCount: entries.length,
+        totalSize: entries.reduce((sum, item) => sum + (item.type === "object" ? item.size || 0 : 0), 0),
+        truncated: false,
+      },
+    };
   });
 }
 
@@ -745,7 +826,12 @@ ipcMain.handle("config:save", (_evt, payload) => {
   return configStore.getState();
 });
 ipcMain.handle("connection:save", (_evt, payload) => {
-  validateIpcPayload(payload, ["endpoint", "accessKeyId"]);
+  const type = String(payload?.type || "s3").toLowerCase();
+  if (type === "ftp" || type === "ftps") {
+    validateIpcPayload(payload, ["host", "username"]);
+  } else {
+    validateIpcPayload(payload, ["endpoint", "accessKeyId"]);
+  }
   ensureStores();
   return configStore.upsertConnection(payload);
 });
@@ -758,6 +844,135 @@ ipcMain.handle("connection:setActive", (_evt, id) => {
 ipcMain.handle("connection:list", () => {
   ensureStores();
   return configStore.getState();
+});
+function safeExportFileName(value, fallback = "connection") {
+  const clean = String(value || fallback)
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return clean || fallback;
+}
+
+function encryptConnectionExport(payload, passphrase) {
+  const salt = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(12);
+  const key = crypto.pbkdf2Sync(passphrase, salt, 210000, 32, "sha256");
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const plaintext = Buffer.from(JSON.stringify(payload), "utf8");
+  const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  return {
+    format: "s3-desktop-client-connections-encrypted",
+    version: 1,
+    algorithm: "aes-256-gcm",
+    kdf: "pbkdf2-sha256",
+    iterations: 210000,
+    salt: salt.toString("base64"),
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    data: encrypted.toString("base64"),
+  };
+}
+
+function decryptConnectionExport(payload, passphrase) {
+  if (!passphrase || typeof passphrase !== "string") {
+    throw new Error("A passphrase is required for this encrypted export file");
+  }
+  if (
+    payload?.format !== "s3-desktop-client-connections-encrypted" ||
+    payload.algorithm !== "aes-256-gcm" ||
+    payload.kdf !== "pbkdf2-sha256"
+  ) {
+    throw new Error("Unsupported encrypted connections file");
+  }
+  try {
+    const key = crypto.pbkdf2Sync(
+      passphrase,
+      Buffer.from(payload.salt, "base64"),
+      Number(payload.iterations) || 210000,
+      32,
+      "sha256"
+    );
+    const decipher = crypto.createDecipheriv(
+      "aes-256-gcm",
+      key,
+      Buffer.from(payload.iv, "base64")
+    );
+    decipher.setAuthTag(Buffer.from(payload.tag, "base64"));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(payload.data, "base64")),
+      decipher.final(),
+    ]);
+    return JSON.parse(decrypted.toString("utf8"));
+  } catch (err) {
+    throw new Error("Unable to decrypt connections file. Check the passphrase and try again.");
+  }
+}
+
+let pendingConnectionImportPath = null;
+
+ipcMain.handle("connection:export", async (_evt, options = {}) => {
+  ensureStores();
+  const id = typeof options === "string" ? options : options?.id || null;
+  const passphrase = typeof options === "object" ? options.passphrase || "" : "";
+  const payload = id ? configStore.exportConnection(id) : configStore.exportConnections();
+  const namePart = id
+    ? safeExportFileName(payload.connections[0]?.name || payload.connections[0]?.endpoint || payload.connections[0]?.host)
+    : "connections";
+  const defaultPath = path.join(
+    app.getPath("documents"),
+    `s3-${namePart}-${new Date().toISOString().slice(0, 10)}.json`
+  );
+  const result = await dialog.showSaveDialog({
+    title: id ? "Export connection" : "Export connections",
+    defaultPath,
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (result.canceled || !result.filePath) {
+    return { canceled: true };
+  }
+  const output = passphrase ? encryptConnectionExport(payload, passphrase) : payload;
+  fs.writeFileSync(result.filePath, JSON.stringify(output, null, 2), "utf8");
+  return { canceled: false, encrypted: Boolean(passphrase), filePath: result.filePath, count: payload.connections.length };
+});
+ipcMain.handle("connection:import", async (_evt, options = {}) => {
+  ensureStores();
+  const passphrase = typeof options === "object" ? options.passphrase || "" : "";
+  let filePath = passphrase && pendingConnectionImportPath ? pendingConnectionImportPath : null;
+  if (!filePath) {
+    const result = await dialog.showOpenDialog({
+      title: "Import connections",
+      properties: ["openFile"],
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { canceled: true };
+    }
+    filePath = result.filePaths[0];
+  }
+  let payload;
+  try {
+    payload = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (err) {
+    throw new Error(`Unable to read connections file: ${err.message}`);
+  }
+  if (payload?.format === "s3-desktop-client-connections-encrypted") {
+    if (!passphrase) {
+      pendingConnectionImportPath = filePath;
+      return { canceled: false, needsPassphrase: true, filePath };
+    }
+    payload = decryptConnectionExport(payload, passphrase);
+  }
+  pendingConnectionImportPath = null;
+  const summary = configStore.importConnections(payload);
+  return {
+    canceled: false,
+    encrypted: Boolean(passphrase),
+    filePath,
+    ...summary,
+    state: configStore.getState(),
+  };
 });
 ipcMain.handle("connection:delete", (_evt, id) => {
   if (!id || typeof id !== "string") throw new Error("Invalid payload: connection id is required");
@@ -775,6 +990,14 @@ ipcMain.handle("connection:listAvailableBuckets", async () => {
     }));
   } catch (err) {
     throw new Error(normalizeError(err, "Unable to list buckets"));
+  }
+});
+
+ipcMain.handle("ftp:list", async (_evt, payload) => {
+  try {
+    return await listFtpDirectory(payload || {});
+  } catch (err) {
+    throw new Error(normalizeError(err, "Unable to list FTP directory"));
   }
 });
 

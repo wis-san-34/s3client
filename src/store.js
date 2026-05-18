@@ -32,6 +32,7 @@ const ACCESS_LABEL = /access[\s_-]*key[\s_-]*id/;
 const SECRET_LABEL = /secret[\s_-]*access[\s_-]*key/;
 
 const KEYTAR_SERVICE = "s3-desktop-client";
+const CONNECTION_TYPES = new Set(["s3", "ftp", "ftps"]);
 
 function canEncryptSecrets() {
   return Boolean(safeStorage?.isEncryptionAvailable?.() && safeStorage.isEncryptionAvailable());
@@ -231,6 +232,25 @@ function sanitizeConnectionCredentials(conn = {}) {
     ...conn,
     accessKeyId: sanitizedAccess || "",
     secretAccessKey: sanitizedSecret || "",
+  };
+}
+
+function normalizeConnectionType(type) {
+  const normalized = String(type || "s3").trim().toLowerCase();
+  return CONNECTION_TYPES.has(normalized) ? normalized : "s3";
+}
+
+function sanitizeFtpConnection(conn = {}) {
+  const secureMode = String(conn.secureMode || (conn.type === "ftps" ? "explicit" : "none"))
+    .trim()
+    .toLowerCase();
+  return {
+    host: (conn.host || conn.endpoint || "").toString().trim(),
+    port: Math.max(1, Math.min(65535, Math.floor(Number(conn.port) || (conn.type === "ftps" ? 21 : 21)))),
+    username: (conn.username || conn.accessKeyId || "").toString().trim(),
+    remotePath: (conn.remotePath || "/").toString().trim() || "/",
+    secureMode: ["none", "explicit", "implicit"].includes(secureMode) ? secureMode : "none",
+    rejectUnauthorized: conn.rejectUnauthorized !== false,
   };
 }
 
@@ -474,10 +494,22 @@ class ConfigStore extends JsonStore {
         sanitized.softDeleteEnabled != null ? sanitized.softDeleteEnabled : this.data.softDeleteEnabled
       );
       sanitized.trashPrefix = (sanitized.trashPrefix || this.data.trashPrefix || ".trash/").toString();
+      sanitized.type = normalizeConnectionType(sanitized.type);
       sanitized.accessKeyId = (sanitized.accessKeyId || "").trim();
       sanitized.endpoint = (sanitized.endpoint || "").trim();
       sanitized.bucket = (sanitized.bucket || "").trim();
       sanitized.region = sanitized.region || "auto";
+      if (sanitized.type === "ftp" || sanitized.type === "ftps") {
+        const ftp = sanitizeFtpConnection(sanitized);
+        sanitized.host = ftp.host;
+        sanitized.endpoint = ftp.host;
+        sanitized.port = ftp.port;
+        sanitized.username = ftp.username;
+        sanitized.accessKeyId = ftp.username;
+        sanitized.remotePath = ftp.remotePath;
+        sanitized.secureMode = sanitized.type === "ftps" && ftp.secureMode === "none" ? "explicit" : ftp.secureMode;
+        sanitized.rejectUnauthorized = ftp.rejectUnauthorized;
+      }
       if (sanitized.hasSecret == null) {
         sanitized.hasSecret = Boolean(sanitized.secretAccessKeyEncrypted);
       }
@@ -531,6 +563,7 @@ class ConfigStore extends JsonStore {
     if (!conn) return null;
     const normalized = {
       id: conn.id,
+      type: normalizeConnectionType(conn.type),
       name: conn.name || "",
       endpoint: conn.endpoint || "",
       accessKeyId: conn.accessKeyId || "",
@@ -556,6 +589,17 @@ class ConfigStore extends JsonStore {
       trashPrefix: (conn.trashPrefix || this.data.trashPrefix || ".trash/").toString(),
       hasSecret: Boolean(conn.hasSecret && conn.secretAccessKeyEncrypted),
     };
+    if (normalized.type === "ftp" || normalized.type === "ftps") {
+      const ftp = sanitizeFtpConnection(conn);
+      normalized.host = ftp.host;
+      normalized.endpoint = ftp.host;
+      normalized.port = ftp.port;
+      normalized.username = ftp.username;
+      normalized.accessKeyId = ftp.username;
+      normalized.remotePath = ftp.remotePath;
+      normalized.secureMode = normalized.type === "ftps" && ftp.secureMode === "none" ? "explicit" : ftp.secureMode;
+      normalized.rejectUnauthorized = ftp.rejectUnauthorized;
+    }
     if (includeSecret) {
       normalized.secretAccessKey =
         this.secretCache.get(normalized.id) || decryptSecret(conn);
@@ -570,6 +614,7 @@ class ConfigStore extends JsonStore {
 
   getLegacyConnection({ includeSecret = false } = {}) {
     const base = {
+      type: "s3",
       endpoint: this.data.endpoint || "",
       accessKeyId: this.data.accessKeyId || "",
       bucket: this.data.bucket || "",
@@ -644,12 +689,15 @@ class ConfigStore extends JsonStore {
     }
     const id = conn.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const existingIndex = this.data.connections.findIndex((c) => c.id === id);
+    const type = normalizeConnectionType(conn.type);
+    const ftp = sanitizeFtpConnection({ ...conn, type });
     const base = {
       id,
+      type,
       name: conn.name || `Connection ${this.data.connections.length + 1}`,
-      endpoint: conn.endpoint || "",
-      accessKeyId: conn.accessKeyId || "",
-      bucket: conn.bucket || "",
+      endpoint: type === "s3" ? conn.endpoint || "" : ftp.host,
+      accessKeyId: type === "s3" ? conn.accessKeyId || "" : ftp.username,
+      bucket: type === "s3" ? conn.bucket || "" : "",
       region: conn.region || "auto",
       partSize: conn.partSize != null ? conn.partSize : this.data.partSize,
       concurrency: conn.concurrency != null ? conn.concurrency : this.data.concurrency,
@@ -664,11 +712,23 @@ class ConfigStore extends JsonStore {
         conn.softDeleteEnabled != null ? Boolean(conn.softDeleteEnabled) : this.data.softDeleteEnabled,
       trashPrefix: (conn.trashPrefix != null ? conn.trashPrefix : this.data.trashPrefix || ".trash/").toString(),
     };
+    if (type === "ftp" || type === "ftps") {
+      base.host = ftp.host;
+      base.port = ftp.port;
+      base.username = ftp.username;
+      base.remotePath = ftp.remotePath;
+      base.secureMode = type === "ftps" && ftp.secureMode === "none" ? "explicit" : ftp.secureMode;
+      base.rejectUnauthorized = ftp.rejectUnauthorized;
+    }
+    const candidateSecret = type === "s3" ? conn.secretAccessKey : conn.password || conn.secretAccessKey;
     const sanitizedCreds = sanitizeConnectionCredentials({
       accessKeyId: base.accessKeyId,
-      secretAccessKey: conn.secretAccessKey,
+      secretAccessKey: candidateSecret,
     });
     base.accessKeyId = sanitizedCreds.accessKeyId;
+    if (type === "ftp" || type === "ftps") {
+      base.username = sanitizedCreds.accessKeyId;
+    }
     base.partSize = clampPartSizeBytes(base.partSize);
     base.concurrency = clampConcurrency(base.concurrency);
     const existingRecord = existingIndex >= 0 ? this.data.connections[existingIndex] : null;
@@ -696,6 +756,7 @@ class ConfigStore extends JsonStore {
   }
 
   persistLegacyFields(record) {
+    if (normalizeConnectionType(record.type) !== "s3") return;
     this.data.endpoint = record.endpoint;
     this.data.accessKeyId = record.accessKeyId;
     this.data.bucket = record.bucket;
@@ -760,6 +821,102 @@ class ConfigStore extends JsonStore {
       ),
       current,
     };
+  }
+
+  exportConnections({ ids = null } = {}) {
+    const connections = Array.isArray(this.data.connections) ? this.data.connections : [];
+    const idSet = Array.isArray(ids) ? new Set(ids.filter(Boolean)) : null;
+    const selectedConnections = idSet ? connections.filter((conn) => idSet.has(conn.id)) : connections;
+    return {
+      format: "s3-desktop-client-connections",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      activeConnectionId:
+        this.data.activeConnectionId && (!idSet || idSet.has(this.data.activeConnectionId))
+          ? this.data.activeConnectionId
+          : selectedConnections[0]?.id || null,
+      connections: selectedConnections.map((conn) => {
+        const hydrated = this.hydrateConnection(conn, { includeSecret: true });
+        const exported = {
+          id: hydrated.id,
+          type: hydrated.type,
+          name: hydrated.name,
+          endpoint: hydrated.endpoint,
+          accessKeyId: hydrated.accessKeyId,
+          bucket: hydrated.bucket,
+          region: hydrated.region,
+          partSize: hydrated.partSize,
+          concurrency: hydrated.concurrency,
+          maxActiveTransfers: hydrated.maxActiveTransfers,
+          maxActiveUploads: hydrated.maxActiveUploads,
+          maxActiveDownloads: hydrated.maxActiveDownloads,
+          maxRetries: hydrated.maxRetries,
+          softDeleteEnabled: hydrated.softDeleteEnabled,
+          trashPrefix: hydrated.trashPrefix,
+        };
+        if (hydrated.secretAccessKey) {
+          exported.secretAccessKey = hydrated.secretAccessKey;
+        }
+        if (hydrated.type === "ftp" || hydrated.type === "ftps") {
+          exported.host = hydrated.host;
+          exported.port = hydrated.port;
+          exported.username = hydrated.username;
+          exported.password = hydrated.secretAccessKey || "";
+          exported.remotePath = hydrated.remotePath;
+          exported.secureMode = hydrated.secureMode;
+          exported.rejectUnauthorized = hydrated.rejectUnauthorized;
+        }
+        return exported;
+      }),
+    };
+  }
+
+  exportConnection(id) {
+    if (!id || typeof id !== "string") {
+      throw new Error("Connection id is required");
+    }
+    const payload = this.exportConnections({ ids: [id] });
+    if (payload.connections.length === 0) {
+      throw new Error("Connection not found");
+    }
+    return payload;
+  }
+
+  importConnections(payload) {
+    const source = Array.isArray(payload) ? { connections: payload } : payload;
+    if (!source || typeof source !== "object" || !Array.isArray(source.connections)) {
+      throw new Error("Import file does not contain a connections array");
+    }
+    let imported = 0;
+    let skipped = 0;
+    const importedIds = new Set();
+    source.connections.forEach((conn) => {
+      if (!conn || typeof conn !== "object") {
+        skipped += 1;
+        return;
+      }
+      const type = normalizeConnectionType(conn.type);
+      const hasRequiredFields =
+        type === "ftp" || type === "ftps"
+          ? Boolean(conn.host || conn.endpoint) && Boolean(conn.username || conn.accessKeyId)
+          : Boolean(conn.endpoint) && Boolean(conn.accessKeyId);
+      if (!hasRequiredFields) {
+        skipped += 1;
+        return;
+      }
+      const saved = this.upsertConnection({
+        ...conn,
+        type,
+        password: conn.password || conn.secretAccessKey,
+      });
+      if (saved?.id) importedIds.add(saved.id);
+      imported += 1;
+    });
+    if (source.activeConnectionId && importedIds.has(source.activeConnectionId)) {
+      this.data.activeConnectionId = source.activeConnectionId;
+      this.save();
+    }
+    return { imported, skipped };
   }
 }
 

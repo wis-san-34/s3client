@@ -1,0 +1,83 @@
+Build a Windows desktop app called “S3 Desktop Client” using Electron, Node.js, and the AWS SDK for JavaScript.
+
+The app should let users upload, download, browse, and manage files in Amazon S3 or S3-compatible storage providers such as Cloudflare R2, MinIO, Backblaze B2, and custom S3 endpoints.
+
+Core requirements:
+- Electron desktop app with a clean, professional Windows-style interface.
+- Support multiple saved S3 connections.
+- Each connection should include:
+  - Connection name
+  - Endpoint URL
+  - Access Key ID
+  - Secret Access Key
+  - Default bucket
+  - Region, defaulting to “auto”
+  - Multipart part size
+  - Transfer concurrency
+  - Max active transfers
+  - Max active uploads
+  - Max active downloads
+  - Max retries
+  - Optional soft-delete mode with configurable trash prefix.
+- Store secrets securely using Electron safeStorage and OS credential vault support where available.
+- Never store plaintext secrets on disk.
+
+Main screens:
+1. Dashboard
+   - Saved connection selector
+   - Upload form with file picker and object key input
+   - Download form with object key, destination folder, and filename
+   - Bucket browser showing object name, size, modified date, actions, metrics, prefix filtering, breadcrumbs, refresh, load more, and delete selected
+   - Transfer table with type, key, status, progress, and actions
+   - Drag-and-drop upload zone
+
+2. Explorer
+   - Dual-pane file manager
+   - Left pane: local filesystem browser
+   - Right pane: S3 bucket browser
+   - Breadcrumbs, sorting, filtering, selection summaries, and detail inspector
+   - Drag files/folders from local pane or Windows Explorer into bucket pane to upload
+   - Download selected bucket objects into the selected local folder
+   - Local file actions: new folder, rename, delete, open in Explorer
+   - Bucket actions: new folder, rename, delete
+
+3. Transfers
+   - Queue uploads and downloads
+   - Resumable multipart uploads
+   - Range-based resumable downloads
+   - Pause, resume, cancel, retry, prioritize, and reorder queued transfers
+   - Show progress, status, errors, active counts, and finished transfers
+   - Persist transfer state so interrupted transfers can resume after restart
+
+4. Connections
+   - List saved connections
+   - Add, edit, delete, search, and activate connections
+   - Display saved count and active connection
+
+5. Logs
+   - Activity log with search and level filtering
+   - Log levels: info, success, warning, error
+   - Copy, export, and clear logs
+   - Error diagnostics panel with copyable detailed error information
+
+Technical requirements:
+- Use Electron main/preload/renderer separation.
+- Keep nodeIntegration disabled and contextIsolation enabled.
+- Expose safe IPC APIs through preload.
+- Use @aws-sdk/client-s3 for all S3 operations.
+- Support S3-compatible endpoints.
+- Implement multipart uploads and download resume logic in worker threads so the UI stays responsive.
+- Persist app data under the Electron userData directory.
+- Use JSON stores for config, resume state, and transfer history.
+- Clamp multipart settings to valid S3 limits.
+- Support batch delete, object rename via copy/delete, bucket folder creation, and optional soft delete by copying objects to a trash prefix before deletion.
+- Include tests for transfer queue/shared logic, store behavior, resume logic, and main utility validation.
+
+Design:
+- Clean productivity-tool UI, not a marketing landing page.
+- Light and dark theme support.
+- Compact tables, clear controls, breadcrumbs, progress bars, and toast notifications.
+- Responsive layout that works on smaller windows.
+- Use a restrained blue/cyan accent palette with clear success, warning, and danger states.
+
+Package the app with electron-builder for Windows, producing NSIS installer and zip outputs.

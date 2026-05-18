@@ -19,11 +19,40 @@ window.api.onTransferUpdate((transfer) => {
 });
 
 // ── Connection settings form ───────────────────────────────────────────────────
-document.getElementById("save-config").addEventListener("click", async () => {
+function getSelectedConnectionType() {
+  if (els.ftpConnectionLayout && !els.ftpConnectionLayout.hidden) {
+    return els.ftpProtocol?.value === "ftps" ? "ftps" : "ftp";
+  }
+  return "s3";
+}
+
+function buildConnectionPayload() {
+  const type = getSelectedConnectionType();
+  if (type === "ftp" || type === "ftps") {
+    const password = els.ftpPassword?.value?.trim() || "";
+    const payload = {
+      type,
+      name: els.connectionName.value.trim(),
+      host: els.ftpHost.value.trim(),
+      port: Math.max(1, Math.min(65535, Number(els.ftpPort?.value) || 21)),
+      username: els.ftpUsername.value.trim(),
+      remotePath: (els.ftpRemotePath?.value || "/").trim() || "/",
+      secureMode: type === "ftps" ? els.ftpSecureMode?.value || "explicit" : "none",
+      rejectUnauthorized: Boolean(els.ftpRejectUnauthorized?.checked),
+    };
+    if (password) {
+      payload.password = password;
+    } else if (els.ftpPassword?.dataset.hasSecret !== "true") {
+      payload.password = "";
+    }
+    return payload;
+  }
+
   const transferSettings = validateTransferSettings();
-  if (!transferSettings) return;
+  if (!transferSettings) return null;
   const secretValue = els.secretAccessKey.value.trim();
   const payload = {
+    type: "s3",
     endpoint: els.endpoint.value.trim(),
     accessKeyId: els.accessKeyId.value.trim(),
     bucket: els.bucket.value.trim(),
@@ -42,6 +71,12 @@ document.getElementById("save-config").addEventListener("click", async () => {
   } else if (els.secretAccessKey.dataset.hasSecret !== "true") {
     payload.secretAccessKey = "";
   }
+  return payload;
+}
+
+document.getElementById("save-config").addEventListener("click", async () => {
+  const payload = buildConnectionPayload();
+  if (!payload) return;
   const saved = await window.api.saveConnection(payload);
   const state = await window.api.listConnections();
   renderConnections(state);
@@ -49,9 +84,27 @@ document.getElementById("save-config").addEventListener("click", async () => {
   setSecretInputState(Boolean(saved.hasSecret));
   els.configStatus.innerText = `Saved ${saved.name || "connection"}.`;
   setTimeout(() => (els.configStatus.innerText = ""), 1500);
-  refreshBucket();
-  addLog(`Saved connection: ${saved.name || saved.endpoint || "unnamed"}`);
+  if (saved.type === "ftp" || saved.type === "ftps") {
+    els.configStatus.innerText = `Saved ${saved.name || "FTP connection"}.`;
+  } else {
+    refreshBucket();
+  }
+  addLog(`Saved connection: ${saved.name || saved.endpoint || saved.host || "unnamed"}`);
 });
+
+if (els.connectionTypeS3) {
+  els.connectionTypeS3.addEventListener("click", () => setConnectionTypeLayout("s3"));
+}
+if (els.connectionTypeFtp) {
+  els.connectionTypeFtp.addEventListener("click", () => setConnectionTypeLayout(els.ftpProtocol?.value || "ftp"));
+}
+if (els.ftpProtocol) {
+  els.ftpProtocol.addEventListener("change", () => {
+    const isFtps = els.ftpProtocol.value === "ftps";
+    if (els.ftpSecureMode) els.ftpSecureMode.value = isFtps ? "explicit" : "none";
+    setConnectionTypeLayout(els.ftpProtocol.value);
+  });
+}
 
 // ── Dashboard upload form ──────────────────────────────────────────────────────
 document.getElementById("pick-upload").addEventListener("click", async () => {
@@ -191,7 +244,7 @@ if (transferSearchEl) {
 document.getElementById("bucket-refresh").addEventListener("click", () => refreshBucket({ append: false }));
 if (bucketUpBtn) {
   bucketUpBtn.addEventListener("click", () => {
-    openDashboardBucketPrefix(bucketParentPrefix(els.bucketPrefix.value.trim()));
+    openDashboardBucketPrefix(isFtpConnection() ? remoteParentPath(els.bucketPrefix.value.trim()) : bucketParentPrefix(els.bucketPrefix.value.trim()));
   });
 }
 bucketMoreBtn.addEventListener("click", () => refreshBucket({ append: true }));
@@ -372,65 +425,77 @@ document.getElementById("connection-refresh").addEventListener("click", async ()
   renderConnections(state);
   applyConnection(state.current || state);
 });
+if (connectionExportBtn) {
+  connectionExportBtn.addEventListener("click", async () => {
+    try {
+      const encrypt = await showConfirmPrompt({
+        title: "Encrypt export file?",
+        message: "Use a passphrase to protect the exported connection secrets.",
+        okLabel: "Encrypt",
+        cancelLabel: "Export without encryption",
+      });
+      const passphrase = encrypt
+        ? await showInputPrompt({
+            title: "Export passphrase",
+            defaultValue: "",
+            okLabel: "Export",
+            inputType: "password",
+          })
+        : "";
+      if (encrypt && !passphrase) return;
+      const result = await window.api.exportConnections({ passphrase });
+      if (result?.canceled) return;
+      addLog(`Exported ${result.count || 0} connection(s)${result.encrypted ? " with encryption" : ""} to ${result.filePath}`);
+    } catch (err) {
+      addLog(`Export failed: ${err.message}`);
+    }
+  });
+}
+if (connectionImportBtn) {
+  connectionImportBtn.addEventListener("click", async () => {
+    try {
+      let result = await window.api.importConnections();
+      if (result?.canceled) return;
+      if (result?.needsPassphrase) {
+        const passphrase = await showInputPrompt({
+          title: "Import passphrase",
+          defaultValue: "",
+          okLabel: "Import",
+          inputType: "password",
+        });
+        if (!passphrase) return;
+        result = await window.api.importConnections({ passphrase });
+      }
+      renderConnections(result.state);
+      applyConnection(result.state?.current);
+      addLog(`Imported ${result.imported || 0} connection(s)${result.encrypted ? " from encrypted file" : ""} from ${result.filePath}${result.skipped ? ` (${result.skipped} skipped)` : ""}`);
+    } catch (err) {
+      addLog(`Import failed: ${err.message}`);
+    }
+  });
+}
 if (connectionSearchInput) {
   connectionSearchInput.addEventListener("input", () => renderConnectionTable());
 }
 document.getElementById("connection-add").addEventListener("click", async () => {
-  const transferSettings = validateTransferSettings();
-  if (!transferSettings) return;
-  const name = await showInputPrompt({
-    title: "Connection name",
-    defaultValue: "New S3 connection",
-    okLabel: "Next",
-  });
-  if (!name) return;
-  const endpoint = await showInputPrompt({ title: "Endpoint URL", defaultValue: "", okLabel: "Next" });
-  if (!endpoint) return;
-  const accessKeyId = await showInputPrompt({ title: "Access Key ID", defaultValue: "", okLabel: "Next" });
-  if (!accessKeyId) return;
-  const secretAccessKey = await showInputPrompt({
-    title: "Secret Access Key",
-    defaultValue: "",
-    okLabel: "Next",
-  });
-  if (!secretAccessKey) return;
-  let bucket = await showInputPrompt({ title: "Bucket name (optional)", defaultValue: "", okLabel: "Add" });
-  if (!bucket) {
-    const buckets = await window.api.listAvailableBuckets();
-    if (buckets?.length) {
-      const options = buckets.map((b, idx) => `${idx + 1}. ${b.name}`).join("\n");
-      const choice = await showInputPrompt({
-        title: `Select bucket number or type name:\n${options}`,
-        defaultValue: "",
-        okLabel: "Add",
-      });
-      const idx = Number(choice);
-      if (!Number.isNaN(idx) && buckets[idx - 1]) {
-        bucket = buckets[idx - 1].name;
-      } else if (choice) {
-        bucket = choice;
-      }
-    }
+  setActivePage("dashboard");
+  setConnectionPanelCollapsed(false);
+  setConnectionTypeLayout("s3");
+  els.connectionName.value = "";
+  els.endpoint.value = "";
+  els.accessKeyId.value = "";
+  els.secretAccessKey.value = "";
+  setSecretInputState(false);
+  els.bucket.value = "";
+  if (els.ftpHost) els.ftpHost.value = "";
+  if (els.ftpUsername) els.ftpUsername.value = "";
+  if (els.ftpPassword) {
+    els.ftpPassword.value = "";
+    els.ftpPassword.dataset.hasSecret = "false";
+    els.ftpPassword.placeholder = "";
   }
-  await window.api.saveConnection({
-    name,
-    endpoint: endpoint.trim(),
-    accessKeyId: accessKeyId.trim(),
-    secretAccessKey: secretAccessKey.trim(),
-    bucket: bucket?.trim(),
-    partSize: transferSettings.partSizeBytes,
-    concurrency: transferSettings.concurrency,
-    maxActiveTransfers: Math.max(1, Math.min(16, Number(els.maxActiveTransfers?.value) || 3)),
-    maxActiveUploads: Math.max(1, Math.min(16, Number(els.maxActiveUploads?.value) || 2)),
-    maxActiveDownloads: Math.max(1, Math.min(16, Number(els.maxActiveDownloads?.value) || 2)),
-    maxRetries: Math.max(0, Math.min(10, Number(els.maxRetries?.value) || 3)),
-    softDeleteEnabled: Boolean(els.softDeleteEnabled?.checked),
-    trashPrefix: (els.trashPrefix?.value || ".trash/").trim() || ".trash/",
-  });
-  const state = await window.api.listConnections();
-  renderConnections(state);
-  applyConnection(state.current || state);
-  addLog(`Added connection: ${name}`);
+  if (els.configStatus) els.configStatus.innerText = "Choose S3 or FTP / FTPS, then save the connection.";
+  els.connectionName.focus();
 });
 
 // ── Local browser controls ────────────────────────────────────────────────────
@@ -641,7 +706,7 @@ if (bucketExplorerScroll) {
 }
 if (bucketExplorerUpBtn) {
   bucketExplorerUpBtn.addEventListener("click", () => {
-    loadBucketExplorer(bucketParentPrefix(explorerState.bucketPrefix));
+    loadBucketExplorer(isFtpConnection() ? remoteParentPath(explorerState.bucketPrefix) : bucketParentPrefix(explorerState.bucketPrefix));
   });
 }
 if (bucketNewFolderBtn) {

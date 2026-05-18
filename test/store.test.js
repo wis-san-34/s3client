@@ -186,6 +186,113 @@ test("ConfigStore.upsertConnection updates an existing connection when called wi
   assert.equal(store.data.connections.length, 1); // still only one entry
 });
 
+test("ConfigStore persists FTP and FTPS connection fields without plaintext password", (t) => {
+  const dir = createTempDir();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const filePath = path.join(dir, "config.json");
+  const store = new ConfigStore(filePath);
+  const saved = store.upsertConnection({
+    type: "ftps",
+    name: "FTPS Site",
+    host: " ftp.example.com ",
+    port: 990,
+    username: " deploy ",
+    password: " SECRET-PASSWORD ",
+    remotePath: "/public_html",
+    secureMode: "implicit",
+    rejectUnauthorized: false,
+  });
+
+  assert.equal(saved.type, "ftps");
+  assert.equal(saved.host, "ftp.example.com");
+  assert.equal(saved.endpoint, "ftp.example.com");
+  assert.equal(saved.port, 990);
+  assert.equal(saved.username, "deploy");
+  assert.equal(saved.accessKeyId, "deploy");
+  assert.equal(saved.secretAccessKey, "SECRET-PASSWORD");
+  assert.equal(saved.remotePath, "/public_html");
+  assert.equal(saved.secureMode, "implicit");
+  assert.equal(saved.rejectUnauthorized, false);
+
+  const raw = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  assert.equal(raw.connections[0].password, undefined);
+  assert.equal(raw.connections[0].secretAccessKey, undefined);
+  assert.ok(raw.connections[0].secretAccessKeyEncrypted);
+});
+
+test("ConfigStore exports portable connections with secrets and imports them", (t) => {
+  const dir = createTempDir();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const source = new ConfigStore(path.join(dir, "source.json"));
+  const s3 = source.upsertConnection({
+    name: "S3",
+    endpoint: "https://s3.example.com",
+    accessKeyId: "KEY",
+    secretAccessKey: "SECRET",
+    bucket: "bucket-a",
+  });
+  source.upsertConnection({
+    type: "ftps",
+    name: "FTPS",
+    host: "ftp.example.com",
+    username: "deploy",
+    password: "FTP_SECRET",
+    remotePath: "/site",
+  });
+  source.setActiveConnection(s3.id);
+
+  const exported = source.exportConnections();
+  assert.equal(exported.format, "s3-desktop-client-connections");
+  assert.equal(exported.connections.length, 2);
+  assert.equal(exported.connections[0].secretAccessKey, "SECRET");
+  assert.equal(exported.connections[1].password, "FTP_SECRET");
+  assert.equal(exported.connections[1].secretAccessKeyEncrypted, undefined);
+
+  const target = new ConfigStore(path.join(dir, "target.json"));
+  const summary = target.importConnections(exported);
+  assert.deepEqual(summary, { imported: 2, skipped: 0 });
+
+  const state = target.getState();
+  assert.equal(state.connections.length, 2);
+  assert.equal(state.activeConnectionId, s3.id);
+  assert.equal(target.getActiveConnection({ includeSecret: true }).secretAccessKey, "SECRET");
+  assert.equal(
+    target.hydrateConnection(target.data.connections.find((c) => c.type === "ftps"), { includeSecret: true }).secretAccessKey,
+    "FTP_SECRET"
+  );
+
+  const raw = JSON.parse(fs.readFileSync(path.join(dir, "target.json"), "utf8"));
+  assert.equal(raw.connections[0].secretAccessKey, undefined);
+  assert.equal(raw.connections[1].password, undefined);
+});
+
+test("ConfigStore exports one selected connection", (t) => {
+  const dir = createTempDir();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const store = new ConfigStore(path.join(dir, "config.json"));
+  store.upsertConnection({
+    name: "First",
+    endpoint: "https://first.example.com",
+    accessKeyId: "KEY1",
+    secretAccessKey: "SECRET1",
+  });
+  const second = store.upsertConnection({
+    name: "Second",
+    endpoint: "https://second.example.com",
+    accessKeyId: "KEY2",
+    secretAccessKey: "SECRET2",
+  });
+
+  const exported = store.exportConnection(second.id);
+  assert.equal(exported.connections.length, 1);
+  assert.equal(exported.activeConnectionId, second.id);
+  assert.equal(exported.connections[0].name, "Second");
+  assert.equal(exported.connections[0].secretAccessKey, "SECRET2");
+});
+
 // ── TransferHistoryStore edge cases ───────────────────────────────────────────
 
 test("TransferHistoryStore.upsert ignores entries without an id", (t) => {

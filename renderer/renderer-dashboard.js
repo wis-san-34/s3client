@@ -218,7 +218,7 @@ function renderBucketRows(items, { append = false } = {}) {
 }
 
 function openDashboardBucketPrefix(prefix) {
-  const nextPrefix = normalizePrefix(prefix || "");
+  const nextPrefix = isFtpConnection() ? normalizeRemotePath(prefix || "/") : normalizePrefix(prefix || "");
   els.bucketPrefix.value = nextPrefix;
   persistExplorerPrefs({ dashboardBucketPrefix: nextPrefix });
   clearDashboardSelection();
@@ -257,6 +257,42 @@ function buildDashboardBucketEntries({ prefixes = [], items = [] }, currentPrefi
 
 // ── Dashboard bucket refresh ───────────────────────────────────────────────────
 async function refreshBucket({ append = false } = {}) {
+  const activeConn = getActiveConnection();
+  if (isFtpConnection(activeConn)) {
+    try {
+      const requestSeq = ++dashboardBucketRequestSeq;
+      els.bucketStatus.innerText = "Loading remote directory...";
+      const requestedPath = normalizeRemotePath(els.bucketPrefix.value.trim() || activeConn.remotePath || "/");
+      const res = await window.api.listFtp({ path: requestedPath });
+      if (requestSeq !== dashboardBucketRequestSeq) return;
+      dashboardBucketPrefix = res.path || requestedPath;
+      if (els.bucketPrefix.value !== dashboardBucketPrefix) {
+        els.bucketPrefix.value = dashboardBucketPrefix;
+      }
+      bucketNextToken = null;
+      bucketMoreBtn.style.display = "none";
+      clearDashboardSelection();
+      renderBucketRows(res.entries || [], { append: false });
+      const entries = res.entries || [];
+      const folderCount = entries.filter((entry) => entry.type === "folder").length;
+      const objectCount = entries.filter((entry) => entry.type === "object").length;
+      els.bucketStatus.innerText = `Loaded ${entries.length} item${entries.length === 1 ? "" : "s"} (${folderCount} folder${folderCount === 1 ? "" : "s"}, ${objectCount} file${objectCount === 1 ? "" : "s"}).`;
+      renderDashboardBucketBreadcrumb(dashboardBucketPrefix);
+      updateBucketMetrics(res.metrics);
+      setErrorDetails(null);
+    } catch (err) {
+      els.bucketStatus.innerText = err.message || "Failed to list FTP directory.";
+      bucketMoreBtn.style.display = "none";
+      updateBucketMetrics(null);
+      setErrorDetails({
+        operation: "ftp:list",
+        bucket: activeConn?.host || "",
+        key: els.bucketPrefix.value.trim(),
+        message: err.message || "Failed to list FTP directory",
+      });
+    }
+    return;
+  }
   const bucket = els.bucket.value.trim();
   if (!bucket) {
     els.bucketStatus.innerText = "Set a bucket name first.";
