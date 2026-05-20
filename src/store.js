@@ -251,6 +251,8 @@ function sanitizeFtpConnection(conn = {}) {
     remotePath: (conn.remotePath || "/").toString().trim() || "/",
     secureMode: ["none", "explicit", "implicit"].includes(secureMode) ? secureMode : "none",
     rejectUnauthorized: conn.rejectUnauthorized !== false,
+    allowLegacyTls: Boolean(conn.allowLegacyTls),
+    protectDataChannel: conn.protectDataChannel !== false,
   };
 }
 
@@ -509,6 +511,8 @@ class ConfigStore extends JsonStore {
         sanitized.remotePath = ftp.remotePath;
         sanitized.secureMode = sanitized.type === "ftps" && ftp.secureMode === "none" ? "explicit" : ftp.secureMode;
         sanitized.rejectUnauthorized = ftp.rejectUnauthorized;
+        sanitized.allowLegacyTls = ftp.allowLegacyTls;
+        sanitized.protectDataChannel = ftp.protectDataChannel;
       }
       if (sanitized.hasSecret == null) {
         sanitized.hasSecret = Boolean(sanitized.secretAccessKeyEncrypted);
@@ -599,6 +603,8 @@ class ConfigStore extends JsonStore {
       normalized.remotePath = ftp.remotePath;
       normalized.secureMode = normalized.type === "ftps" && ftp.secureMode === "none" ? "explicit" : ftp.secureMode;
       normalized.rejectUnauthorized = ftp.rejectUnauthorized;
+      normalized.allowLegacyTls = ftp.allowLegacyTls;
+      normalized.protectDataChannel = ftp.protectDataChannel;
     }
     if (includeSecret) {
       normalized.secretAccessKey =
@@ -719,6 +725,8 @@ class ConfigStore extends JsonStore {
       base.remotePath = ftp.remotePath;
       base.secureMode = type === "ftps" && ftp.secureMode === "none" ? "explicit" : ftp.secureMode;
       base.rejectUnauthorized = ftp.rejectUnauthorized;
+      base.allowLegacyTls = ftp.allowLegacyTls;
+      base.protectDataChannel = ftp.protectDataChannel;
     }
     const candidateSecret = type === "s3" ? conn.secretAccessKey : conn.password || conn.secretAccessKey;
     const sanitizedCreds = sanitizeConnectionCredentials({

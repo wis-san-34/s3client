@@ -841,13 +841,15 @@ function getDroppedLocalPaths(dataTransfer) {
 
 // ── Explorer upload/download actions ─────────────────────────────────────────
 async function queueBucketUploadsFromPaths(paths, prefix = explorerState.bucketPrefix || "") {
+  const activeConn = getActiveConnection();
   const bucket = els.bucket.value.trim();
-  if (!bucket) {
+  if (!isFtpConnection(activeConn) && !bucket) {
     if (bucketExplorerStatus) bucketExplorerStatus.innerText = "Set a bucket before uploading.";
     return;
   }
   try {
-    const queue = await buildUploadQueueFromPaths(paths, prefix);
+    const targetPrefix = isFtpConnection(activeConn) ? normalizeRemotePath(prefix || activeConn.remotePath || "/") : prefix;
+    const queue = await buildUploadQueueFromPaths(paths, targetPrefix);
     if (!queue.length) {
       showToast("No files found in dropped item(s).", "info");
       return;
@@ -873,16 +875,19 @@ async function startExplorerUpload(filePath, keyOverride = "") {
     if (localBrowserStatus) localBrowserStatus.innerText = "Select a file to upload.";
     return;
   }
+  const activeConn = getActiveConnection();
   const bucket = els.bucket.value.trim();
-  if (!bucket) {
+  if (!isFtpConnection(activeConn) && !bucket) {
     if (bucketExplorerStatus) bucketExplorerStatus.innerText = "Set a bucket before uploading.";
     return;
   }
-  const key = keyOverride || joinBucketKey(explorerState.bucketPrefix || "", baseName(filePath));
+  const key = isFtpConnection(activeConn)
+    ? normalizeRemotePath(keyOverride || `${normalizeRemotePath(explorerState.bucketPrefix || activeConn.remotePath || "/")}/${baseName(filePath)}`)
+    : keyOverride || joinBucketKey(explorerState.bucketPrefix || "", baseName(filePath));
   const transfer = await window.api.startUpload({
     filePath,
     key,
-    bucket,
+    bucket: isFtpConnection(activeConn) ? activeConn.host || activeConn.name || "FTP" : bucket,
   });
   transferStore.upsert(transfer);
   renderTransfers();

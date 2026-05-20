@@ -202,6 +202,8 @@ test("ConfigStore persists FTP and FTPS connection fields without plaintext pass
     remotePath: "/public_html",
     secureMode: "implicit",
     rejectUnauthorized: false,
+    allowLegacyTls: true,
+    protectDataChannel: false,
   });
 
   assert.equal(saved.type, "ftps");
@@ -214,6 +216,8 @@ test("ConfigStore persists FTP and FTPS connection fields without plaintext pass
   assert.equal(saved.remotePath, "/public_html");
   assert.equal(saved.secureMode, "implicit");
   assert.equal(saved.rejectUnauthorized, false);
+  assert.equal(saved.allowLegacyTls, true);
+  assert.equal(saved.protectDataChannel, false);
 
   const raw = JSON.parse(fs.readFileSync(filePath, "utf8"));
   assert.equal(raw.connections[0].password, undefined);

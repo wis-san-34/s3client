@@ -1,0 +1,8 @@
+version: 0.3.1
+files:
+  - url: S3-Desktop-Client-Setup-0.3.1.exe
+    sha512: WQzhOfpr15aOFGsrWB1P58mxsOMsAwix6XaOfInF2fh4/c43jEGcQuO3n2hoKL0goulaF6rTC5b3o1pbjCmyxw==
+    size: 100855849
+path: S3-Desktop-Client-Setup-0.3.1.exe
+sha512: WQzhOfpr15aOFGsrWB1P58mxsOMsAwix6XaOfInF2fh4/c43jEGcQuO3n2hoKL0goulaF6rTC5b3o1pbjCmyxw==
+releaseDate: '2026-05-18T21:53:54.545Z'

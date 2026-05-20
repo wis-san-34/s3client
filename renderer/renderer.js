@@ -39,6 +39,8 @@ function buildConnectionPayload() {
       remotePath: (els.ftpRemotePath?.value || "/").trim() || "/",
       secureMode: type === "ftps" ? els.ftpSecureMode?.value || "explicit" : "none",
       rejectUnauthorized: Boolean(els.ftpRejectUnauthorized?.checked),
+      allowLegacyTls: Boolean(els.ftpAllowLegacyTls?.checked),
+      protectDataChannel: els.ftpProtectDataChannel?.checked !== false,
     };
     if (password) {
       payload.password = password;
@@ -622,11 +624,16 @@ if (localUploadBtn) {
       return;
     }
     const fileQueue = [];
+    const activeConn = getActiveConnection();
+    const isFtp = isFtpConnection(activeConn);
+    const targetPrefix = isFtp ? normalizeRemotePath(explorerState.bucketPrefix || activeConn.remotePath || "/") : explorerState.bucketPrefix || "";
+    const makeTargetKey = (relativePath) =>
+      isFtp ? normalizeRemotePath(`${targetPrefix}/${toPosixPath(relativePath)}`) : joinBucketKey(targetPrefix, relativePath);
     for (const entry of selection) {
       if (!entry.isDirectory) {
         fileQueue.push({
           fullPath: entry.fullPath,
-          bucketKey: joinBucketKey(explorerState.bucketPrefix || "", entry.name),
+          bucketKey: makeTargetKey(entry.name),
         });
         continue;
       }
@@ -634,7 +641,7 @@ if (localUploadBtn) {
       const nestedFiles = await listLocalFilesRecursively(entry.fullPath);
       nestedFiles.forEach((file) => {
         const rel = relativeLocalPath(entry.fullPath, file.fullPath);
-        const key = joinBucketKey(explorerState.bucketPrefix || "", `${entry.name}/${toPosixPath(rel)}`);
+        const key = makeTargetKey(`${entry.name}/${toPosixPath(rel)}`);
         fileQueue.push({ fullPath: file.fullPath, bucketKey: key });
       });
     }

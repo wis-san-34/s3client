@@ -358,13 +358,17 @@ async function refreshBucket({ append = false } = {}) {
 
 // ── Dashboard upload/download actions ─────────────────────────────────────────
 async function queueDashboardUploadsFromPaths(paths) {
+  const activeConn = getActiveConnection();
   const bucket = els.bucket.value.trim();
-  if (!bucket) {
+  if (!isFtpConnection(activeConn) && !bucket) {
     els.uploadStatus.innerText = "Set a bucket before uploading.";
     return;
   }
   try {
-    const queue = await buildUploadQueueFromPaths(paths, "");
+    const targetPrefix = isFtpConnection(activeConn)
+      ? normalizeRemotePath(els.bucketPrefix.value.trim() || activeConn.remotePath || "/")
+      : "";
+    const queue = await buildUploadQueueFromPaths(paths, targetPrefix);
     if (!queue.length) {
       showToast("No files found in dropped item(s).", "info");
       return;
@@ -391,21 +395,24 @@ async function startUploadTransfer(filePath, keyInput) {
     els.uploadStatus.innerText = "Pick a file to upload.";
     return;
   }
+  const activeConn = getActiveConnection();
   const bucket = els.bucket.value.trim();
-  if (!bucket) {
+  if (!isFtpConnection(activeConn) && !bucket) {
     els.uploadStatus.innerText = "Set a bucket before uploading.";
     return;
   }
   const basenameFromFile = baseName(filePath);
   const rawInput = (keyInput || "").trim();
   const sanitizedInput = rawInput && /[\\:]/.test(rawInput) ? baseName(rawInput) : rawInput;
-  const finalKey = sanitizedInput || basenameFromFile;
+  const finalKey = isFtpConnection(activeConn)
+    ? normalizeRemotePath(sanitizedInput || `${normalizeRemotePath(els.bucketPrefix.value.trim() || activeConn.remotePath || "/")}/${basenameFromFile}`)
+    : sanitizedInput || basenameFromFile;
   els.uploadKey.value = finalKey;
   try {
     const transfer = await window.api.startUpload({
       filePath,
       key: finalKey,
-      bucket,
+      bucket: isFtpConnection(activeConn) ? activeConn.host || activeConn.name || "FTP" : bucket,
     });
     transferStore.upsert(transfer);
     renderTransfers();

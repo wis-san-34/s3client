@@ -1,53 +1,43 @@
-Build a Windows desktop app called “S3 Desktop Client” using Electron, Node.js, and the AWS SDK for JavaScript.
+Build version 0.3.3 of a Windows desktop app called "S3 Desktop Client" using Electron, Node.js, the AWS SDK for JavaScript, and basic-ftp.
 
-The app should let users upload, download, browse, and manage files in Amazon S3 or S3-compatible storage providers such as Cloudflare R2, MinIO, Backblaze B2, and custom S3 endpoints.
+The app should let users upload, download, browse, and manage files in Amazon S3, S3-compatible storage providers such as Cloudflare R2, MinIO, Backblaze B2, custom S3 endpoints, FTP servers, and FTPS servers.
 
 Core requirements:
 - Electron desktop app with a clean, professional Windows-style interface.
-- Support multiple saved S3 connections.
-- Each connection should include:
-  - Connection name
-  - Endpoint URL
-  - Access Key ID
-  - Secret Access Key
-  - Default bucket
-  - Region, defaulting to “auto”
-  - Multipart part size
-  - Transfer concurrency
-  - Max active transfers
-  - Max active uploads
-  - Max active downloads
-  - Max retries
-  - Optional soft-delete mode with configurable trash prefix.
+- Support multiple saved S3, FTP, and FTPS connections.
+- S3 connections should include connection name, endpoint URL, access key ID, secret access key, default bucket, region defaulting to "auto", multipart part size, transfer concurrency, max active transfers, max active uploads, max active downloads, max retries, and optional soft-delete mode with configurable trash prefix.
+- FTP/FTPS connections should include connection name, host, port, username, password, default remote path, FTPS mode, TLS certificate verification, legacy TLS compatibility, and data channel encryption controls.
 - Store secrets securely using Electron safeStorage and OS credential vault support where available.
 - Never store plaintext secrets on disk.
 
 Main screens:
 1. Dashboard
    - Saved connection selector
-   - Upload form with file picker and object key input
-   - Download form with object key, destination folder, and filename
-   - Bucket browser showing object name, size, modified date, actions, metrics, prefix filtering, breadcrumbs, refresh, load more, and delete selected
+   - Upload form with file picker and object key input for S3, or remote file path for FTP/FTPS
+   - Download form with object key or remote file path, destination folder, and filename
+   - Bucket browser for S3, or FTP remote browser for FTP/FTPS, showing name, size, modified date, actions, metrics, path filtering, breadcrumbs, refresh, load more where applicable, and delete selected where supported
    - Transfer table with type, key, status, progress, and actions
    - Drag-and-drop upload zone
 
 2. Explorer
    - Dual-pane file manager
    - Left pane: local filesystem browser
-   - Right pane: S3 bucket browser
+   - Right pane: S3 bucket browser or FTP remote file browser
    - Breadcrumbs, sorting, filtering, selection summaries, and detail inspector
-   - Drag files/folders from local pane or Windows Explorer into bucket pane to upload
-   - Download selected bucket objects into the selected local folder
+   - Drag files/folders from local pane or Windows Explorer into the bucket/remote pane to upload
+   - Download selected bucket objects or remote files into the selected local folder
    - Local file actions: new folder, rename, delete, open in Explorer
-   - Bucket actions: new folder, rename, delete
+   - Bucket/remote actions: new folder, rename, delete where supported
+   - When an FTP/FTPS connection becomes active, switch the main screen into an FTP-focused remote file view.
 
 3. Transfers
    - Queue uploads and downloads
-   - Resumable multipart uploads
-   - Range-based resumable downloads
-   - Pause, resume, cancel, retry, prioritize, and reorder queued transfers
+   - Resumable multipart uploads for S3
+   - Range-based resumable downloads for S3
+   - FTP/FTPS uploads through FTP operations instead of S3 multipart workers
+   - Pause, resume, cancel, retry, prioritize, and reorder queued transfers where supported
    - Show progress, status, errors, active counts, and finished transfers
-   - Persist transfer state so interrupted transfers can resume after restart
+   - Persist transfer state so interrupted S3 transfers can resume after restart
 
 4. Connections
    - List saved connections
@@ -65,13 +55,16 @@ Technical requirements:
 - Keep nodeIntegration disabled and contextIsolation enabled.
 - Expose safe IPC APIs through preload.
 - Use @aws-sdk/client-s3 for all S3 operations.
+- Use basic-ftp for FTP/FTPS operations.
 - Support S3-compatible endpoints.
+- Support FTP, explicit FTPS, implicit FTPS, legacy TLS compatibility, and optional unencrypted FTPS data channels for older servers.
 - Implement multipart uploads and download resume logic in worker threads so the UI stays responsive.
 - Persist app data under the Electron userData directory.
 - Use JSON stores for config, resume state, and transfer history.
 - Clamp multipart settings to valid S3 limits.
 - Support batch delete, object rename via copy/delete, bucket folder creation, and optional soft delete by copying objects to a trash prefix before deletion.
 - Include tests for transfer queue/shared logic, store behavior, resume logic, and main utility validation.
+- Keep npm dependencies patched against known advisories, including XML serialization/injection issues in @xmldom/xmldom, fast-xml-parser, fast-xml-builder, and the ip-address HTML-emitting method XSS advisory.
 
 Design:
 - Clean productivity-tool UI, not a marketing landing page.

@@ -275,10 +275,41 @@ function isFtpConnection(conn = getActiveConnection()) {
 }
 
 // ── Apply active connection to all panels ─────────────────────────────────────
+function applyStorageViewMode(conn = getActiveConnection()) {
+  const isFtp = isFtpConnection(conn);
+  document.body.dataset.storageView = isFtp ? "ftp" : "s3";
+  if (els.uploadKeyLabel) els.uploadKeyLabel.innerText = isFtp ? "Remote file path" : "Object name (key)";
+  if (els.uploadKey) els.uploadKey.placeholder = isFtp ? "/remote/path/file.ext" : "object.ext";
+  if (els.downloadKeyLabel) els.downloadKeyLabel.innerText = isFtp ? "Remote file path" : "Object key";
+  if (els.downloadKey) els.downloadKey.placeholder = isFtp ? "/remote/path/file.ext" : "folder/object.ext";
+  if (els.bucketPrefix) els.bucketPrefix.placeholder = isFtp ? "Remote path" : "Prefix filter (optional)";
+  if (els.bucketBrowserTitle) els.bucketBrowserTitle.innerText = isFtp ? "FTP Remote Browser" : "Bucket Browser";
+  if (els.bucketBrowserSubtitle) {
+    els.bucketBrowserSubtitle.innerText = isFtp ? "Browse files and folders on the active FTP server." : "Browse objects in the current bucket and set keys";
+  }
+  if (els.metricBucketLabel) els.metricBucketLabel.innerText = isFtp ? "Server" : "Bucket";
+  if (els.metricObjectsLabel) els.metricObjectsLabel.innerText = isFtp ? "Files" : "Objects";
+  if (els.localPaneSubtitle) {
+    els.localPaneSubtitle.innerText = isFtp ? "Browse your PC and drag files into the FTP remote pane to upload." : "Browse your PC and drag files into the bucket pane to upload.";
+  }
+  if (els.bucketPaneTitle) els.bucketPaneTitle.innerText = isFtp ? "FTP Remote Files" : "Bucket Objects";
+  if (els.bucketPaneSubtitle) {
+    els.bucketPaneSubtitle.innerText = isFtp ? "Browse the active FTP server and download to the selected local path." : "Browse your S3 bucket and download to the selected local path.";
+  }
+  if (els.bucketPrefixLabel) els.bucketPrefixLabel.innerText = isFtp ? "Current remote path" : "Current prefix";
+  if (bucketExplorerPrefixInput) bucketExplorerPrefixInput.placeholder = isFtp ? "/remote/path" : "folder/subfolder/";
+  if (bucketExplorerFilterInput) bucketExplorerFilterInput.placeholder = isFtp ? "Filter remote files and folders" : "Filter objects and prefixes";
+  if (els.bucketInspectorLocationLabel) els.bucketInspectorLocationLabel.innerText = isFtp ? "Remote path" : "Prefix";
+  if (els.bucketExplorerDropzone) {
+    els.bucketExplorerDropzone.innerText = isFtp ? "Drag files from the local pane or your desktop to upload into this remote directory." : "Drag files from the local pane or your desktop to upload into this prefix.";
+  }
+}
+
 function applyConnection(conn) {
   if (!conn) return;
   const connectionType = conn.type || "s3";
   setConnectionTypeLayout(connectionType);
+  applyStorageViewMode(conn);
   if (els.ftpProtocol) els.ftpProtocol.value = connectionType === "ftps" ? "ftps" : "ftp";
   if (els.ftpHost) els.ftpHost.value = conn.host || "";
   if (els.ftpPort) els.ftpPort.value = `${conn.port || 21}`;
@@ -291,6 +322,8 @@ function applyConnection(conn) {
   if (els.ftpRemotePath) els.ftpRemotePath.value = conn.remotePath || "/";
   if (els.ftpSecureMode) els.ftpSecureMode.value = conn.secureMode || (connectionType === "ftps" ? "explicit" : "none");
   if (els.ftpRejectUnauthorized) els.ftpRejectUnauthorized.checked = conn.rejectUnauthorized !== false;
+  if (els.ftpAllowLegacyTls) els.ftpAllowLegacyTls.checked = Boolean(conn.allowLegacyTls);
+  if (els.ftpProtectDataChannel) els.ftpProtectDataChannel.checked = conn.protectDataChannel !== false;
   els.endpoint.value = conn.endpoint || "";
   els.accessKeyId.value = conn.accessKeyId || "";
   setSecretInputState(Boolean(conn.hasSecret));
@@ -316,8 +349,14 @@ function applyConnection(conn) {
     if (els.configStatus) els.configStatus.innerText = "FTP/FTPS browsing is enabled in the Explorer remote pane.";
     if (bucketBody) bucketBody.innerHTML = "";
     if (bucketExplorerBody) bucketExplorerBody.innerHTML = "";
+    const remotePath = normalizeRemotePath(prefs.bucketPrefix || conn.remotePath || "/");
+    if (els.bucketPrefix) els.bucketPrefix.value = remotePath;
+    dashboardBucketPrefix = remotePath;
+    explorerState.bucketPrefix = remotePath;
     loadLocalExplorer(prefs.localPath || explorerState.localPath || undefined);
-    loadBucketExplorer(conn.remotePath || "/", { force: true });
+    refreshBucket({ append: false });
+    loadBucketExplorer(remotePath, { force: true });
+    setActivePage("explorer");
     return;
   }
   const dashboardPrefix = normalizePrefix(prefs.dashboardBucketPrefix || "");

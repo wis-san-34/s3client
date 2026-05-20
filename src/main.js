@@ -145,6 +145,47 @@ function joinFtpRemotePath(base, child) {
   return normalizeFtpRemotePath(root === "/" ? `/${cleanChild}` : `${root}/${cleanChild}`);
 }
 
+function getFtpTransferLabel(cfg) {
+  return cfg?.name || cfg?.host || "FTP";
+}
+
+function buildFtpSecureOptions(cfg) {
+  const secureOptions = {
+    rejectUnauthorized: cfg.rejectUnauthorized !== false,
+  };
+  if (cfg.allowLegacyTls) {
+    secureOptions.minVersion = "TLSv1";
+    secureOptions.ciphers = "DEFAULT@SECLEVEL=0";
+  }
+  return secureOptions;
+}
+
+function explainFtpAccessError(err, cfg) {
+  const message = err?.message || String(err || "Unknown FTP error");
+  const code = err?.code ? ` (${err.code})` : "";
+  if (
+    cfg?.type === "ftps" &&
+    !cfg.allowLegacyTls &&
+    /ECONNRESET|wrong version number|tls|handshake|alert|socket/i.test(message)
+  ) {
+    return new Error(`${message}${code}. FTPS TLS negotiation failed. For older servers like Xlight FTP Server 3.x, edit the connection and enable "Allow legacy TLS", or use plain FTP if the server is only reachable on a trusted local network.`);
+  }
+  return err;
+}
+
+function explainFtpListError(err, cfg) {
+  const message = err?.message || String(err || "Unknown FTP error");
+  const code = err?.code ? ` (${err.code})` : "";
+  if (
+    cfg?.type === "ftps" &&
+    cfg.protectDataChannel !== false &&
+    /ECONNRESET|data connection|passive|socket/i.test(message)
+  ) {
+    return new Error(`${message}${code}. FTPS directory listing failed on the encrypted data channel. For older servers like Xlight FTP Server 3.x, edit the connection and disable "Encrypt data channel" if this is a trusted local network.`);
+  }
+  return err;
+}
+
 async function withFtpClient(connection, operation) {
   const cfg = connection || configStore.getActiveConnection();
   if (!cfg || !["ftp", "ftps"].includes(cfg.type)) {
@@ -155,16 +196,21 @@ async function withFtpClient(connection, operation) {
   }
   const client = new ftp.Client(30000);
   try {
-    await client.access({
-      host: cfg.host,
-      port: Number(cfg.port) || 21,
-      user: cfg.username,
-      password: cfg.secretAccessKey,
-      secure: cfg.type === "ftps" ? (cfg.secureMode === "implicit" ? "implicit" : true) : false,
-      secureOptions: {
-        rejectUnauthorized: cfg.rejectUnauthorized !== false,
-      },
-    });
+    try {
+      await client.access({
+        host: cfg.host,
+        port: Number(cfg.port) || 21,
+        user: cfg.username,
+        password: cfg.secretAccessKey,
+        secure: cfg.type === "ftps" ? (cfg.secureMode === "implicit" ? "implicit" : true) : false,
+        secureOptions: buildFtpSecureOptions(cfg),
+      });
+    } catch (err) {
+      throw explainFtpAccessError(err, cfg);
+    }
+    if (cfg.type === "ftps" && cfg.protectDataChannel === false) {
+      await client.sendIgnoringError("PROT C");
+    }
     return await operation(client, cfg);
   } finally {
     client.close();
@@ -177,7 +223,12 @@ async function listFtpDirectory(payload = {}) {
   const requestedPath = payload.path || payload.prefix || active.remotePath || "/";
   const remotePath = normalizeFtpRemotePath(requestedPath);
   return withFtpClient(active, async (client) => {
-    const items = await client.list(remotePath);
+    let items;
+    try {
+      items = await client.list(remotePath);
+    } catch (err) {
+      throw explainFtpListError(err, active);
+    }
     const entries = items
       .filter((item) => item && item.name && item.name !== "." && item.name !== "..")
       .map((item) => {
@@ -206,6 +257,50 @@ async function listFtpDirectory(payload = {}) {
       },
     };
   });
+}
+
+async function runFtpUpload(transfer, cfg, filePath, remotePath) {
+  try {
+    const stats = await fsp.stat(filePath);
+    transfer.total = stats.size;
+    transfer.loaded = 0;
+    transfer.state = "running";
+    transfer.startedAt = transfer.startedAt || new Date().toISOString();
+    transfer.endedAt = null;
+    publishTransferUpdate(transfer);
+
+    await withFtpClient(cfg, async (client) => {
+      client.trackProgress((info) => {
+        transfer.loaded = Math.min(info.bytesOverall || 0, transfer.total || info.bytesOverall || 0);
+        transfer.total = transfer.total || info.bytesOverall || null;
+        transfer.state = "running";
+        publishTransferUpdate(transfer);
+      });
+      await client.uploadFrom(filePath, remotePath);
+      client.trackProgress();
+    });
+
+    transfer.loaded = transfer.total;
+    transfer.state = "done";
+    transfer.endedAt = new Date().toISOString();
+    publishTransferUpdate(transfer);
+    transfers.delete(transfer.id);
+    scheduleQueuedTransfers();
+  } catch (err) {
+    transfer.error = normalizeError(err, "Unable to upload FTP file");
+    transfer.errorDetails = buildErrorDetails(err, {
+      operation: "ftp:upload",
+      bucket: getFtpTransferLabel(cfg),
+      key: remotePath,
+      filePath,
+      message: transfer.error,
+    });
+    transfer.state = "error";
+    transfer.endedAt = new Date().toISOString();
+    publishTransferUpdate(transfer);
+    transfers.delete(transfer.id);
+    scheduleQueuedTransfers();
+  }
 }
 
 async function listAllBucketObjects({ bucket, prefix = "" }) {
@@ -749,6 +844,31 @@ function startUpload({ filePath, key, bucket, id: existingId, connection, priori
   ensureStores();
   const cfg = connection || configStore.getActiveConnection();
   const id = existingId || uid();
+  if (cfg?.type === "ftp" || cfg?.type === "ftps") {
+    const remotePath = normalizeFtpRemotePath(key || joinFtpRemotePath(cfg.remotePath || "/", path.basename(filePath)));
+    const transfer = transfers.get(id) || {
+      id,
+      createdAt: new Date().toISOString(),
+    };
+    transfer.type = "upload";
+    transfer.filePath = filePath;
+    transfer.key = remotePath;
+    transfer.bucket = getFtpTransferLabel(cfg);
+    transfer.connection = snapshotConnection(cfg);
+    transfer.loaded = 0;
+    transfer.total = null;
+    transfer.retryCount = 0;
+    transfer.maxRetries = getMaxRetries(cfg?.maxRetries);
+    transfer.startedAt = null;
+    transfer.endedAt = null;
+    transfer.error = "";
+    transfer.errorDetails = null;
+    transfer.state = "queued";
+    transfers.set(id, transfer);
+    publishTransferUpdate(transfer);
+    setImmediate(() => runFtpUpload(transfer, cfg, filePath, remotePath));
+    return transfer;
+  }
   return enqueueOrStartTransfer({
     id,
     type: "upload",
@@ -1182,7 +1302,9 @@ ipcMain.handle("local:openExternal", async (_evt, payload) => {
 });
 
 ipcMain.handle("upload:start", (_evt, payload) => {
-  validateIpcPayload(payload, ["filePath", "key", "bucket"]);
+  ensureStores();
+  const active = configStore.getActiveConnection({ includeSecret: false });
+  validateIpcPayload(payload, active?.type === "ftp" || active?.type === "ftps" ? ["filePath", "key"] : ["filePath", "key", "bucket"]);
   return renderableTransfer(startUpload(payload));
 });
 ipcMain.handle("download:start", (_evt, payload) => {

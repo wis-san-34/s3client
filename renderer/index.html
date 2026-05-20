@@ -821,6 +821,14 @@
                 Verify TLS certificate
               </label>
             </div>
+            <label style="display:flex; align-items:center; gap:8px;">
+              <input id="ftp-allow-legacy-tls" type="checkbox" style="width:auto;" />
+              Allow legacy TLS
+            </label>
+            <label style="display:flex; align-items:center; gap:8px;">
+              <input id="ftp-protect-data-channel" type="checkbox" checked style="width:auto;" />
+              Encrypt data channel
+            </label>
           </div>
           <details id="s3-advanced-settings" class="advanced-panel">
             <summary>Advanced Transfer & Safety Settings</summary>
@@ -879,7 +887,7 @@
           <input id="upload-file" placeholder="Select a file" style="flex:1;" />
           <button id="pick-upload" style="width:120px;">Choose</button>
         </div>
-        <label>Object name (key)</label>
+        <label id="upload-key-label">Object name (key)</label>
         <input id="upload-key" placeholder="object.ext" />
         <button id="start-upload">Start Upload</button>
         <div id="upload-status" class="muted"></div>
@@ -887,7 +895,7 @@
 
       <div class="card stack">
         <div><strong>Download</strong></div>
-        <label>Object key</label>
+        <label id="download-key-label">Object key</label>
         <input id="download-key" placeholder="folder/object.ext" />
         <label>Destination folder</label>
         <div style="display:flex; gap:8px;">
@@ -905,8 +913,8 @@
       <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
           <div>
-            <strong>Bucket Browser</strong>
-            <div class="muted">Browse objects in the current bucket and set keys</div>
+            <strong id="bucket-browser-title">Bucket Browser</strong>
+            <div class="muted" id="bucket-browser-subtitle">Browse objects in the current bucket and set keys</div>
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <input id="bucket-prefix" placeholder="Prefix filter (optional)" style="width:220px;">
@@ -918,11 +926,11 @@
         <div class="breadcrumb" id="bucket-dashboard-breadcrumb" style="margin-bottom:10px;"></div>
         <div class="grid" id="bucket-metrics" style="margin-bottom:12px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));">
           <div class="metric-card">
-            <div class="metric-label">Bucket</div>
+            <div class="metric-label" id="metric-bucket-label">Bucket</div>
             <div class="metric-value" id="metric-bucket">-</div>
           </div>
           <div class="metric-card">
-            <div class="metric-label">Objects</div>
+            <div class="metric-label" id="metric-objects-label">Objects</div>
             <div class="metric-value" id="metric-objects">-</div>
           </div>
           <div class="metric-card">
@@ -996,7 +1004,7 @@
         <div class="card-heading">
           <div>
             <strong>Local Files</strong>
-            <div class="muted">Browse your PC and drag files into the bucket pane to upload.</div>
+            <div class="muted" id="local-pane-subtitle">Browse your PC and drag files into the bucket pane to upload.</div>
           </div>
           <div class="pane-actions">
             <button id="local-upload-selected" class="secondary" style="width:auto;padding:8px 12px;">Upload Selection</button>
@@ -1057,8 +1065,8 @@
       <section class="card stack explorer-pane" style="gap:12px;">
         <div class="card-heading">
           <div>
-            <strong>Bucket Objects</strong>
-            <div class="muted">Browse your S3 bucket and download to the selected local path.</div>
+            <strong id="bucket-pane-title">Bucket Objects</strong>
+            <div class="muted" id="bucket-pane-subtitle">Browse your S3 bucket and download to the selected local path.</div>
           </div>
           <div class="pane-actions">
             <button id="bucket-explorer-download" class="secondary" style="width:auto;padding:8px 12px;">Download Selection</button>
@@ -1066,7 +1074,7 @@
           </div>
         </div>
         <div class="stack" style="gap:8px;">
-          <label class="muted">Current prefix</label>
+          <label class="muted" id="bucket-prefix-label">Current prefix</label>
           <div style="display:flex; gap:8px;">
             <input id="bucket-explorer-prefix" placeholder="folder/subfolder/" />
             <button id="bucket-prefix-go" class="secondary" style="width:80px;">Go</button>
@@ -1085,7 +1093,7 @@
         </div>
         <div class="explorer-inspector" id="bucket-explorer-inspector">
           <div class="inspector-block">
-            <div class="inspector-label">Prefix</div>
+            <div class="inspector-label" id="bucket-inspector-location-label">Prefix</div>
             <div class="inspector-value" id="bucket-inspector-location">-</div>
           </div>
           <div class="inspector-block">
