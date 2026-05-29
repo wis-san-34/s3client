@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none';" />
   <title>S3 Desktop Client</title>
   <style>
     /* Clean UI override tokens */
@@ -305,12 +306,12 @@
       cursor: pointer;
     }
     .sortable[data-sort="asc"]::after {
-      content: "▲";
+      content: "^";
       font-size: 10px;
       margin-left: 4px;
     }
     .sortable[data-sort="desc"]::after {
-      content: "▼";
+      content: "v";
       font-size: 10px;
       margin-left: 4px;
     }
@@ -864,6 +865,10 @@
                 </div>
               </div>
               <div class="stack" style="gap:8px;">
+                <label style="display:flex; align-items:center; gap:8px;">
+                  <input id="s3-reject-unauthorized" type="checkbox" checked style="width:auto;" />
+                  Verify TLS certificate
+                </label>
                 <label style="display:flex; align-items:center; gap:8px;">
                   <input id="softDeleteEnabled" type="checkbox" style="width:auto;" />
                   Soft delete objects to trash prefix

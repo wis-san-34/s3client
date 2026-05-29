@@ -3,7 +3,7 @@
 // drag-and-drop, upload/download queuing from the explorer panel.
 // Depends on: renderer-utils.js, renderer-logs.js, renderer-connections.js
 
-// ── Sort ──────────────────────────────────────────────────────────────────────
+// -- Sort ----------------------------------------------------------------------
 function changeSort(scope, field) {
   const config = sortState[scope];
   if (!config) return;
@@ -81,7 +81,7 @@ function filterEntries(entries, query, scope) {
   });
 }
 
-// ── Summary pills and selection description ───────────────────────────────────
+// -- Summary pills and selection description -----------------------------------
 function renderSummaryPills(container, values) {
   if (!container) return;
   container.innerHTML = "";
@@ -134,7 +134,7 @@ function describeSelection(entries, scope) {
   };
 }
 
-// ── Chrome updates (status bars, inspector panels) ────────────────────────────
+// -- Chrome updates (status bars, inspector panels) ----------------------------
 function updateLocalExplorerChrome() {
   const total = explorerState.localEntries.length;
   const shown = explorerState.localDisplayEntries.length;
@@ -196,7 +196,7 @@ function updateBucketExplorerChrome() {
   }
 }
 
-// ── Selection helpers ─────────────────────────────────────────────────────────
+// -- Selection helpers ---------------------------------------------------------
 function getLocalSelectionEntries() {
   return explorerState.localDisplayEntries.filter((entry) =>
     explorerState.selectedLocalPaths.has(entry.fullPath)
@@ -284,7 +284,7 @@ function handleBucketRowClick(entry, event, index) {
   updateSelection({ type: "bucket", id, index, event });
 }
 
-// ── Transfer indicator badges on explorer rows ────────────────────────────────
+// -- Transfer indicator badges on explorer rows --------------------------------
 function updateExplorerTransferIndicators(transfer) {
   if (!transfer) return;
   const state = transfer.state || "running";
@@ -317,7 +317,7 @@ function updateExplorerTransferIndicators(transfer) {
   }
 }
 
-// ── Local file explorer ───────────────────────────────────────────────────────
+// -- Local file explorer -------------------------------------------------------
 async function loadLocalExplorer(pathOverride) {
   if (!localBrowserBody) return;
   const target = typeof pathOverride === "string" && pathOverride.trim() ? pathOverride.trim() : explorerState.localPath;
@@ -463,7 +463,7 @@ function handleLocalDragStart(event, entry) {
   setTimeout(() => dragLabel.remove(), 0);
 }
 
-// ── Bucket explorer ───────────────────────────────────────────────────────────
+// -- Bucket explorer -----------------------------------------------------------
 function bucketParentPrefix(prefix) {
   if (!prefix) return "";
   const trimmed = prefix.replace(/\/+$/, "");
@@ -707,7 +707,7 @@ function renderBucketExplorerRows(entries = []) {
   updateBucketExplorerChrome();
 }
 
-// ── Path utilities ─────────────────────────────────────────────────────────────
+// -- Path utilities -------------------------------------------------------------
 function buildLocalDestPath(base, name) {
   if (!base) return name;
   if (base.endsWith("\\") || base.endsWith("/")) {
@@ -754,7 +754,7 @@ function relativeLocalPath(basePath, fullPath) {
   return normalizedFull.split("/").pop() || normalizedFull;
 }
 
-// ── Recursive file listing ────────────────────────────────────────────────────
+// -- Recursive file listing ----------------------------------------------------
 async function listLocalFilesRecursively(rootPath) {
   const files = [];
   const queue = [rootPath];
@@ -782,7 +782,7 @@ async function getLocalEntryMeta(fullPath) {
   return window.api.getLocalEntryMeta({ path: fullPath });
 }
 
-// ── Upload queue builder ──────────────────────────────────────────────────────
+// -- Upload queue builder ------------------------------------------------------
 async function buildUploadQueueFromPaths(paths, targetPrefix = "") {
   const queue = [];
   const seen = new Set();
@@ -839,7 +839,7 @@ function getDroppedLocalPaths(dataTransfer) {
   return [];
 }
 
-// ── Explorer upload/download actions ─────────────────────────────────────────
+// -- Explorer upload/download actions -----------------------------------------
 async function queueBucketUploadsFromPaths(paths, prefix = explorerState.bucketPrefix || "") {
   const activeConn = getActiveConnection();
   const bucket = els.bucket.value.trim();

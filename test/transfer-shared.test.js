@@ -33,7 +33,7 @@ test("transferShared sanitizes relative paths and chunks arrays", () => {
   assert.deepEqual(chunkArray([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
 });
 
-// ── clampPartSize edge cases ──────────────────────────────────────────────────
+// -- clampPartSize edge cases --------------------------------------------------
 
 test("clampPartSize returns default for NaN, Infinity, negative, and zero", () => {
   const DEF = 8 * 1024 * 1024;
@@ -47,14 +47,14 @@ test("clampPartSize returns default for NaN, Infinity, negative, and zero", () =
 test("clampPartSize clamps to [5 MB, 5 GB] at exact boundaries", () => {
   const MIN = 5 * 1024 * 1024;
   const MAX = 5 * 1024 * 1024 * 1024;
-  assert.equal(clampPartSize(1), MIN);          // below min → min
-  assert.equal(clampPartSize(MIN), MIN);         // exact min → min
-  assert.equal(clampPartSize(MAX), MAX);         // exact max → max
-  assert.equal(clampPartSize(MAX + 1), MAX);     // above max → max
+  assert.equal(clampPartSize(1), MIN);          // below min -> min
+  assert.equal(clampPartSize(MIN), MIN);         // exact min -> min
+  assert.equal(clampPartSize(MAX), MAX);         // exact max -> max
+  assert.equal(clampPartSize(MAX + 1), MAX);     // above max -> max
   assert.equal(clampPartSize(10 * 1024 * 1024), 10 * 1024 * 1024); // mid-range passes through
 });
 
-// ── clampConcurrency edge cases ───────────────────────────────────────────────
+// -- clampConcurrency edge cases -----------------------------------------------
 
 test("clampConcurrency returns default for NaN, zero, and sub-1 values", () => {
   assert.equal(clampConcurrency(NaN), 2);
@@ -72,7 +72,7 @@ test("clampConcurrency clamps to [1, 16] and floors decimals", () => {
   assert.equal(clampConcurrency(100), 16);
 });
 
-// ── normalizeQueuePriority edge cases ─────────────────────────────────────────
+// -- normalizeQueuePriority edge cases -----------------------------------------
 
 test("normalizeQueuePriority only accepts exact lowercase 'high' and 'low'", () => {
   assert.equal(normalizeQueuePriority("high"), "high");
@@ -86,34 +86,34 @@ test("normalizeQueuePriority only accepts exact lowercase 'high' and 'low'", () 
   assert.equal(normalizeQueuePriority(42), "normal");
 });
 
-// ── getMaxRetries edge cases ──────────────────────────────────────────────────
+// -- getMaxRetries edge cases --------------------------------------------------
 
 test("getMaxRetries clamps to [0, 10] and defaults for invalid inputs", () => {
   assert.equal(getMaxRetries(0), 0);
-  assert.equal(getMaxRetries(-1), 3);      // negative → default
+  assert.equal(getMaxRetries(-1), 3);      // negative -> default
   assert.equal(getMaxRetries(NaN), 3);
   assert.equal(getMaxRetries(null), 3);
   assert.equal(getMaxRetries(3.9), 3);     // parseInt truncates
   assert.equal(getMaxRetries(10), 10);     // exact max
-  assert.equal(getMaxRetries(11), 10);     // over max → clamped
+  assert.equal(getMaxRetries(11), 10);     // over max -> clamped
 });
 
-// ── getRetryDelayMs edge cases ────────────────────────────────────────────────
+// -- getRetryDelayMs edge cases ------------------------------------------------
 
 test("getRetryDelayMs treats 0 and negative counts as 0, grows exponentially, caps at 30 s", () => {
-  assert.equal(getRetryDelayMs(0), 1000);    // 0 → 1000 * 2^0
-  assert.equal(getRetryDelayMs(-5), 1000);   // negative → 0 → 1000
-  assert.equal(getRetryDelayMs(NaN), 1000);  // NaN → 0 → 1000
+  assert.equal(getRetryDelayMs(0), 1000);    // 0 -> 1000 * 2^0
+  assert.equal(getRetryDelayMs(-5), 1000);   // negative -> 0 -> 1000
+  assert.equal(getRetryDelayMs(NaN), 1000);  // NaN -> 0 -> 1000
   assert.equal(getRetryDelayMs(1), 1000);
   assert.equal(getRetryDelayMs(2), 2000);
   assert.equal(getRetryDelayMs(3), 4000);
   assert.equal(getRetryDelayMs(4), 8000);
   assert.equal(getRetryDelayMs(5), 16000);
-  assert.equal(getRetryDelayMs(6), 30000);   // 32000 → capped
+  assert.equal(getRetryDelayMs(6), 30000);   // 32000 -> capped
   assert.equal(getRetryDelayMs(10), 30000);  // still capped
 });
 
-// ── sanitizeRelativePath edge cases ──────────────────────────────────────────
+// -- sanitizeRelativePath edge cases ------------------------------------------
 
 test("sanitizeRelativePath handles absolute paths, double slashes, and Windows drive paths", () => {
   // leading slash stripped (empty segment filtered)
@@ -132,12 +132,12 @@ test("sanitizeRelativePath replaces all special characters", () => {
   assert.equal(sanitizeRelativePath('a<b>c:d"e|f?g*h.txt'), "a_b_c_d_e_f_g_h.txt");
 });
 
-// ── chunkArray edge cases ─────────────────────────────────────────────────────
+// -- chunkArray edge cases -----------------------------------------------------
 
 test("chunkArray handles empty arrays and invalid chunk sizes", () => {
   assert.deepEqual(chunkArray([], 5), []);
-  assert.deepEqual(chunkArray([1, 2, 3], 0), [[1], [2], [3]]);   // 0 → normalizes to 1
-  assert.deepEqual(chunkArray([1, 2, 3], NaN), [[1], [2], [3]]); // NaN → 1
+  assert.deepEqual(chunkArray([1, 2, 3], 0), [[1], [2], [3]]);   // 0 -> normalizes to 1
+  assert.deepEqual(chunkArray([1, 2, 3], NaN), [[1], [2], [3]]); // NaN -> 1
   assert.deepEqual(chunkArray([1, 2, 3], 1), [[1], [2], [3]]);
   assert.deepEqual(chunkArray([1, 2, 3, 4], 4), [[1, 2, 3, 4]]); // exact fit
 });

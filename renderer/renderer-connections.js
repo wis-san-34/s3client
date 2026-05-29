@@ -3,7 +3,7 @@
 // connection table rendering, and applyConnection (wires a loaded connection to all panels).
 // Depends on: renderer-utils.js, renderer-logs.js
 
-// ── Per-connection explorer preferences ───────────────────────────────────────
+// -- Per-connection explorer preferences ---------------------------------------
 function loadExplorerPrefs() {
   try {
     const raw = window?.localStorage?.getItem(EXPLORER_PREFS_STORAGE_KEY);
@@ -36,7 +36,7 @@ function getExplorerPrefsForActiveConnection() {
   return prefs && typeof prefs === "object" ? prefs : {};
 }
 
-// ── Connection panel collapse ──────────────────────────────────────────────────
+// -- Connection panel collapse --------------------------------------------------
 function setConnectionPanelCollapsed(collapsed, { persist = true } = {}) {
   if (!connectionCard || !toggleConnectionPanelBtn) return;
   isConnectionPanelCollapsed = collapsed;
@@ -70,7 +70,7 @@ function syncConnectionPanelCollapsed(hasSavedConnections) {
   }
 }
 
-// ── Connection list rendering ──────────────────────────────────────────────────
+// -- Connection list rendering --------------------------------------------------
 function renderConnections(state) {
   connections = state.connections || [];
   activeConnectionId = state.activeConnectionId || null;
@@ -199,6 +199,40 @@ function renderConnectionTable() {
       }
     };
 
+    const testBtn = document.createElement("button");
+    testBtn.className = "secondary";
+    testBtn.style.width = "auto";
+    testBtn.style.padding = "6px 10px";
+    testBtn.innerText = "Test";
+    testBtn.onclick = async () => {
+      const isFtp = c.type === "ftp" || c.type === "ftps";
+      const checkWrite = !isFtp && await showConfirmPrompt({
+        title: "Run write test?",
+        message: "The read test checks bucket reachability and list permission. The write test creates and deletes a temporary diagnostic object.",
+        okLabel: "Include Write",
+        cancelLabel: "Read Only",
+      });
+      addLog(`Testing connection: ${c.name || c.endpoint || c.host}`);
+      const result = await window.api.testConnection({ id: c.id, checkWrite });
+      const detail = (result.checks || []).map((check) => `${check.ok ? "OK" : "FAIL"} ${check.name}: ${check.detail}`).join(" | ");
+      if (result.ok) {
+        showToast(`Connection test passed (${result.durationMs} ms).`, "success");
+        addLog(`Connection test passed: ${c.name || c.endpoint || c.host} - ${detail}`);
+      } else {
+        showToast("Connection test failed. See logs for details.", "error");
+        addLog(`Connection test failed: ${c.name || c.endpoint || c.host} - ${detail}`);
+        setErrorDetails({
+          operation: "connection:test",
+          bucket: c.bucket || c.remotePath || "",
+          key: "",
+          requestId: result.checks?.find((check) => check.requestId)?.requestId || "",
+          httpStatus: result.checks?.find((check) => check.httpStatus)?.httpStatus || "",
+          type: "ConnectionDiagnostic",
+          message: detail || "Connection test failed",
+        });
+      }
+    };
+
     const exportBtn = document.createElement("button");
     exportBtn.className = "secondary";
     exportBtn.style.width = "auto";
@@ -206,11 +240,17 @@ function renderConnectionTable() {
     exportBtn.innerText = "Export";
     exportBtn.onclick = async () => {
       try {
-        const encrypt = await showConfirmPrompt({
-          title: "Encrypt export file?",
-          message: "Use a passphrase to protect the exported connection secrets.",
+        const includeSecrets = await showConfirmPrompt({
+          title: "Export saved secret?",
+          message: "Export without secrets is safer and works for sharing connection settings. Include secrets only when you need a restorable backup.",
+          okLabel: "Include Secret",
+          cancelLabel: "No Secrets",
+        });
+        const encrypt = includeSecrets && await showConfirmPrompt({
+          title: "Encrypt secret export?",
+          message: "Secret-bearing exports should be protected with a passphrase.",
           okLabel: "Encrypt",
-          cancelLabel: "Export without encryption",
+          cancelLabel: "Export Unencrypted",
         });
         const passphrase = encrypt
           ? await showInputPrompt({
@@ -221,9 +261,9 @@ function renderConnectionTable() {
             })
           : "";
         if (encrypt && !passphrase) return;
-        const result = await window.api.exportConnections({ id: c.id, passphrase });
+        const result = await window.api.exportConnections({ id: c.id, includeSecrets, passphrase });
         if (result?.canceled) return;
-        addLog(`Exported connection${result.encrypted ? " with encryption" : ""}: ${c.name || c.endpoint || c.host}`);
+        addLog(`Exported connection${result.includeSecrets ? " with secrets" : " without secrets"}${result.encrypted ? " and encryption" : ""}: ${c.name || c.endpoint || c.host}`);
       } catch (err) {
         addLog(`Export failed for ${c.name || c.endpoint || c.host}: ${err.message}`);
       }
@@ -245,6 +285,7 @@ function renderConnectionTable() {
       actions.appendChild(setActiveBtn);
     }
     actions.appendChild(targetBtn);
+    actions.appendChild(testBtn);
     actions.appendChild(exportBtn);
     actions.appendChild(delBtn);
 
@@ -274,7 +315,7 @@ function isFtpConnection(conn = getActiveConnection()) {
   return conn?.type === "ftp" || conn?.type === "ftps";
 }
 
-// ── Apply active connection to all panels ─────────────────────────────────────
+// -- Apply active connection to all panels -------------------------------------
 function applyStorageViewMode(conn = getActiveConnection()) {
   const isFtp = isFtpConnection(conn);
   document.body.dataset.storageView = isFtp ? "ftp" : "s3";
@@ -341,6 +382,7 @@ function applyConnection(conn) {
   if (els.maxActiveUploads) els.maxActiveUploads.value = `${conn.maxActiveUploads || 2}`;
   if (els.maxActiveDownloads) els.maxActiveDownloads.value = `${conn.maxActiveDownloads || 2}`;
   if (els.maxRetries) els.maxRetries.value = `${conn.maxRetries ?? 3}`;
+  if (els.s3RejectUnauthorized) els.s3RejectUnauthorized.checked = conn.rejectUnauthorized !== false;
   if (els.softDeleteEnabled) els.softDeleteEnabled.checked = Boolean(conn.softDeleteEnabled);
   if (els.trashPrefix) els.trashPrefix.value = conn.trashPrefix || ".trash/";
   els.connectionName.value = conn.name || "";

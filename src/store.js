@@ -573,6 +573,7 @@ class ConfigStore extends JsonStore {
       accessKeyId: conn.accessKeyId || "",
       bucket: conn.bucket || "",
       region: conn.region || "auto",
+      rejectUnauthorized: conn.rejectUnauthorized !== false,
       partSize: clampPartSizeBytes(conn.partSize || this.data.partSize),
       concurrency: clampConcurrency(conn.concurrency || this.data.concurrency),
       maxActiveTransfers: Number.isFinite(conn.maxActiveTransfers)
@@ -625,6 +626,7 @@ class ConfigStore extends JsonStore {
       accessKeyId: this.data.accessKeyId || "",
       bucket: this.data.bucket || "",
       region: this.data.region || "auto",
+      rejectUnauthorized: this.data.rejectUnauthorized !== false,
       partSize: clampPartSizeBytes(this.data.partSize || 8 * 1024 * 1024),
       concurrency: clampConcurrency(this.data.concurrency || 2),
       maxActiveTransfers: Number.isFinite(this.data.maxActiveTransfers)
@@ -705,6 +707,7 @@ class ConfigStore extends JsonStore {
       accessKeyId: type === "s3" ? conn.accessKeyId || "" : ftp.username,
       bucket: type === "s3" ? conn.bucket || "" : "",
       region: conn.region || "auto",
+      rejectUnauthorized: conn.rejectUnauthorized !== false,
       partSize: conn.partSize != null ? conn.partSize : this.data.partSize,
       concurrency: conn.concurrency != null ? conn.concurrency : this.data.concurrency,
       maxActiveTransfers:
@@ -769,6 +772,7 @@ class ConfigStore extends JsonStore {
     this.data.accessKeyId = record.accessKeyId;
     this.data.bucket = record.bucket;
     this.data.region = record.region;
+    this.data.rejectUnauthorized = record.rejectUnauthorized !== false;
     this.data.partSize = record.partSize;
     this.data.concurrency = record.concurrency;
     this.data.maxActiveTransfers = record.maxActiveTransfers;
@@ -831,7 +835,7 @@ class ConfigStore extends JsonStore {
     };
   }
 
-  exportConnections({ ids = null } = {}) {
+  exportConnections({ ids = null, includeSecrets = false } = {}) {
     const connections = Array.isArray(this.data.connections) ? this.data.connections : [];
     const idSet = Array.isArray(ids) ? new Set(ids.filter(Boolean)) : null;
     const selectedConnections = idSet ? connections.filter((conn) => idSet.has(conn.id)) : connections;
@@ -844,7 +848,7 @@ class ConfigStore extends JsonStore {
           ? this.data.activeConnectionId
           : selectedConnections[0]?.id || null,
       connections: selectedConnections.map((conn) => {
-        const hydrated = this.hydrateConnection(conn, { includeSecret: true });
+        const hydrated = this.hydrateConnection(conn, { includeSecret: includeSecrets });
         const exported = {
           id: hydrated.id,
           type: hydrated.type,
@@ -853,6 +857,7 @@ class ConfigStore extends JsonStore {
           accessKeyId: hydrated.accessKeyId,
           bucket: hydrated.bucket,
           region: hydrated.region,
+          rejectUnauthorized: hydrated.rejectUnauthorized !== false,
           partSize: hydrated.partSize,
           concurrency: hydrated.concurrency,
           maxActiveTransfers: hydrated.maxActiveTransfers,
@@ -862,14 +867,16 @@ class ConfigStore extends JsonStore {
           softDeleteEnabled: hydrated.softDeleteEnabled,
           trashPrefix: hydrated.trashPrefix,
         };
-        if (hydrated.secretAccessKey) {
+        if (includeSecrets && hydrated.secretAccessKey) {
           exported.secretAccessKey = hydrated.secretAccessKey;
         }
         if (hydrated.type === "ftp" || hydrated.type === "ftps") {
           exported.host = hydrated.host;
           exported.port = hydrated.port;
           exported.username = hydrated.username;
-          exported.password = hydrated.secretAccessKey || "";
+          if (includeSecrets) {
+            exported.password = hydrated.secretAccessKey || "";
+          }
           exported.remotePath = hydrated.remotePath;
           exported.secureMode = hydrated.secureMode;
           exported.rejectUnauthorized = hydrated.rejectUnauthorized;
@@ -879,11 +886,11 @@ class ConfigStore extends JsonStore {
     };
   }
 
-  exportConnection(id) {
+  exportConnection(id, options = {}) {
     if (!id || typeof id !== "string") {
       throw new Error("Connection id is required");
     }
-    const payload = this.exportConnections({ ids: [id] });
+    const payload = this.exportConnections({ ids: [id], includeSecrets: Boolean(options.includeSecrets) });
     if (payload.connections.length === 0) {
       throw new Error("Connection not found");
     }

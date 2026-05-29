@@ -57,6 +57,7 @@ function snapshotConnection(connection) {
     accessKeyId: connection.accessKeyId,
     secretAccessKey: connection.secretAccessKey,
     region: connection.region || "auto",
+    rejectUnauthorized: connection.rejectUnauthorized !== false,
     partSize: connection.partSize,
     concurrency: connection.concurrency,
     maxActiveTransfers: connection.maxActiveTransfers,

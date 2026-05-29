@@ -70,7 +70,7 @@ test("download resume derives from file size when resumeInfo has a matching etag
     etag: "etag-1",
     resumeInfo: { etag: "etag-1", parts: [] },
   });
-  // completedParts starts empty → derives 2 parts from floor(16 MB / 8 MB)
+  // completedParts starts empty -> derives 2 parts from floor(16 MB / 8 MB)
   assert.equal(result.completedParts.size, 2);
   assert.equal(result.loaded, 16 * 1024 * 1024);
 });
@@ -85,8 +85,8 @@ test("download resume filters out parts missing PartNumber or size", () => {
       etag: "etag-1",
       parts: [
         { PartNumber: 1, size: 8 * 1024 * 1024 }, // valid
-        { size: 8 * 1024 * 1024 },                 // missing PartNumber → skipped
-        { PartNumber: 3 },                          // missing size → skipped
+        { size: 8 * 1024 * 1024 },                 // missing PartNumber -> skipped
+        { PartNumber: 3 },                          // missing size -> skipped
       ],
     },
   });

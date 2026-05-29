@@ -155,25 +155,31 @@
     count = 1,
     totalSize = 0,
     bucketName = "",
+    localPath = "",
     hardConfirmLabel = "Confirm",
     formatBytes = (value) => `${value} B`,
     notify = null,
   }) {
     const summary = `${count} item${count === 1 ? "" : "s"} (${formatBytes(totalSize || 0)})`;
-    const baseConfirmed = window.confirm(`Delete ${label}?\n${summary}`);
+    const baseConfirmed = await showConfirmPrompt({
+      title: `Delete ${label}?`,
+      message: localPath ? `${summary}\n${localPath}` : summary,
+      okLabel: count > 1 ? "Delete Items" : "Delete",
+      cancelLabel: "Cancel",
+    });
     if (!baseConfirmed) return false;
     const needsHardConfirm = count >= 20 || totalSize >= 500 * 1024 * 1024;
-    const expectedBucket = (bucketName || "").trim();
-    if (!needsHardConfirm || !expectedBucket) return true;
+    const expectedText = (bucketName || localPath || "").trim();
+    if (!needsHardConfirm || !expectedText) return true;
     const typed = await showInputPrompt({
-      title: `Type "${expectedBucket}" to confirm permanent delete`,
+      title: `Type "${expectedText}" to confirm permanent delete`,
       defaultValue: "",
       okLabel: hardConfirmLabel,
     });
-    const typedBucket = (typed || "").trim();
-    if (typedBucket.toLowerCase() !== expectedBucket.toLowerCase()) {
+    const typedText = (typed || "").trim();
+    if (typedText.toLowerCase() !== expectedText.toLowerCase()) {
       if (typeof notify === "function") {
-        notify("Delete cancelled: bucket name did not match.", "info");
+        notify("Delete cancelled: confirmation text did not match.", "info");
       }
       return false;
     }

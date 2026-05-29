@@ -25,10 +25,17 @@ function renderTransferRow(transfer) {
   const loaded = transfer.loaded || 0;
   const total = transfer.total || 0;
   const pct = total ? Math.min(100, (loaded / total) * 100).toFixed(1) : "-";
+  const startedAt = transfer.startedAt ? new Date(transfer.startedAt).getTime() : 0;
+  const elapsedSeconds = startedAt ? Math.max(0.001, (Date.now() - startedAt) / 1000) : 0;
+  const speed = elapsedSeconds && loaded ? loaded / elapsedSeconds : 0;
+  const remaining = total && speed && loaded < total ? Math.max(0, (total - loaded) / speed) : 0;
+  const speedText = speed ? `${fmtBytes(speed)}/s` : "-";
+  const etaText = remaining ? `${Math.ceil(remaining)}s left` : transfer.state === "done" ? "complete" : "estimating";
+  const verification = transfer.verification?.ok ? "Verified by size" : "";
   const progressCell = row.querySelector(".progress");
   progressCell.innerHTML = `
     <div class="progress-bar"><span style="width:${total ? pct : 0}%;"></span></div>
-    <div class="muted">${fmtBytes(loaded)} / ${total ? fmtBytes(total) : "?"} (${pct}%)</div>
+    <div class="muted">${fmtBytes(loaded)} / ${total ? fmtBytes(total) : "?"} (${pct}%) - ${speedText} - ${etaText}${verification ? ` - ${verification}` : ""}</div>
   `;
 
   const actions = row.querySelector(".actions");
@@ -161,6 +168,21 @@ function renderTransferRow(transfer) {
       key: transfer.key || "",
       message: transfer.error || "Failed",
     });
+  } else if (transfer.state === "done") {
+    if (transfer.type === "download" && transfer.dest) {
+      const openBtn = document.createElement("button");
+      openBtn.className = "secondary";
+      openBtn.style.width = "auto";
+      openBtn.style.padding = "6px 10px";
+      openBtn.innerText = "Open";
+      openBtn.onclick = () => window.api.openLocalInExplorer({ path: transfer.dest });
+      actions.appendChild(openBtn);
+    }
+    const done = document.createElement("span");
+    done.className = "muted";
+    done.style.marginLeft = actions.childNodes.length ? "6px" : "0";
+    done.innerText = transfer.verification?.ok ? "Verified" : "Done";
+    actions.appendChild(done);
   }
 }
 

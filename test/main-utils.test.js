@@ -11,7 +11,7 @@ const {
   buildErrorDetails,
 } = require("../src/mainUtils");
 
-// ── normalizeError ────────────────────────────────────────────────────────────
+// -- normalizeError ------------------------------------------------------------
 
 test("normalizeError returns fallback for falsy inputs", () => {
   assert.equal(normalizeError(null), "Unexpected error");
@@ -56,7 +56,7 @@ test("normalizeError omits status/requestId when metadata is absent", () => {
   assert.ok(!result.includes("requestId="));
 });
 
-// ── validateIpcPayload ────────────────────────────────────────────────────────
+// -- validateIpcPayload --------------------------------------------------------
 
 test("validateIpcPayload throws for null, undefined, array, and string inputs", () => {
   assert.throws(() => validateIpcPayload(null, []), /expected an object/);
@@ -107,7 +107,7 @@ test("validateIpcPayload validates multiple fields and stops at first failure", 
   );
 });
 
-// ── snapshotConnection ────────────────────────────────────────────────────────
+// -- snapshotConnection --------------------------------------------------------
 
 test("snapshotConnection returns null for falsy input", () => {
   assert.equal(snapshotConnection(null), null);
@@ -120,6 +120,7 @@ test("snapshotConnection copies exactly the expected fields", () => {
     accessKeyId: "KEY123",
     secretAccessKey: "SECRET456",
     region: "us-east-1",
+    rejectUnauthorized: false,
     partSize: 10 * 1024 * 1024,
     concurrency: 4,
     maxActiveTransfers: 3,
@@ -135,6 +136,7 @@ test("snapshotConnection copies exactly the expected fields", () => {
   assert.equal(snap.accessKeyId, conn.accessKeyId);
   assert.equal(snap.secretAccessKey, conn.secretAccessKey);
   assert.equal(snap.region, "us-east-1");
+  assert.equal(snap.rejectUnauthorized, false);
   assert.equal(snap.partSize, conn.partSize);
   assert.equal(snap.concurrency, 4);
   assert.equal(snap.softDeleteEnabled, true);
@@ -145,9 +147,10 @@ test("snapshotConnection copies exactly the expected fields", () => {
 test("snapshotConnection defaults region to 'auto' when not provided", () => {
   const snap = snapshotConnection({ endpoint: "https://e.com", accessKeyId: "k" });
   assert.equal(snap.region, "auto");
+  assert.equal(snap.rejectUnauthorized, true);
 });
 
-// ── renderableTransfer ────────────────────────────────────────────────────────
+// -- renderableTransfer --------------------------------------------------------
 
 test("renderableTransfer returns the value unchanged for null/undefined", () => {
   assert.equal(renderableTransfer(null), null);
@@ -169,7 +172,7 @@ test("renderableTransfer does not mutate the original transfer object", () => {
   assert.ok("worker" in transfer, "original should still have worker");
 });
 
-// ── persistentTransferSnapshot ────────────────────────────────────────────────
+// -- persistentTransferSnapshot ------------------------------------------------
 
 test("persistentTransferSnapshot returns null for null input", () => {
   assert.equal(persistentTransferSnapshot(null), null);
@@ -200,7 +203,7 @@ test("persistentTransferSnapshot handles transfer without connection", () => {
   assert.ok(!("worker" in result));
 });
 
-// ── createTransferPayload ─────────────────────────────────────────────────────
+// -- createTransferPayload -----------------------------------------------------
 
 test("createTransferPayload returns null for null input and unknown type", () => {
   assert.equal(createTransferPayload(null), null);
@@ -246,7 +249,7 @@ test("createTransferPayload returns correct download payload", () => {
   assert.ok(!("filePath" in payload));
 });
 
-// ── buildErrorDetails ─────────────────────────────────────────────────────────
+// -- buildErrorDetails ---------------------------------------------------------
 
 test("buildErrorDetails returns empty fields for null error and empty context", () => {
   const details = buildErrorDetails(null, {});

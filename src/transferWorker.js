@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const https = require("https");
 const { parentPort } = require("worker_threads");
 const {
   S3Client,
@@ -10,16 +11,23 @@ const {
   GetObjectCommand,
   HeadObjectCommand,
 } = require("@aws-sdk/client-s3");
+const { NodeHttpHandler } = require("@smithy/node-http-handler");
 const { Transform } = require("stream");
 const { clampPartSize } = require("./transferShared");
 const { buildCompletedDownloadParts } = require("./downloadResume");
 
-function buildClient({ endpoint, region = "auto", accessKeyId, secretAccessKey }) {
-  return new S3Client({
+function buildClient({ endpoint, region = "auto", accessKeyId, secretAccessKey, rejectUnauthorized = true }) {
+  const options = {
     region,
     endpoint,
     credentials: { accessKeyId, secretAccessKey },
-  });
+  };
+  if (rejectUnauthorized === false) {
+    options.requestHandler = new NodeHttpHandler({
+      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+    });
+  }
+  return new S3Client(options);
 }
 
 function sendProgress(id, loaded, total, state = "running") {
@@ -39,9 +47,10 @@ async function handleUpload(msg) {
     concurrency = 2,
     resumeInfo,
     region,
+    rejectUnauthorized,
   } = msg;
 
-  const client = buildClient({ endpoint, region, accessKeyId, secretAccessKey });
+  const client = buildClient({ endpoint, region, accessKeyId, secretAccessKey, rejectUnauthorized });
   const stat = fs.statSync(filePath);
   const total = stat.size;
   let uploadId = resumeInfo?.uploadId;
@@ -144,7 +153,24 @@ async function handleUpload(msg) {
     })
   );
 
-  parentPort.postMessage({ type: "done", id, total });
+  const verifyHead = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+  const verifiedSize = verifyHead.ContentLength || 0;
+  if (verifiedSize !== total) {
+    throw new Error(`Upload verification failed: remote size ${verifiedSize} does not match local size ${total}`);
+  }
+
+  parentPort.postMessage({
+    type: "done",
+    id,
+    total,
+    verification: {
+      ok: true,
+      method: "size",
+      expectedSize: total,
+      actualSize: verifiedSize,
+      etag: verifyHead.ETag || "",
+    },
+  });
 }
 
 async function handleDownload(msg) {
@@ -161,9 +187,10 @@ async function handleDownload(msg) {
     resumeInfo,
     existingSize = 0,
     region,
+    rejectUnauthorized,
   } = msg;
 
-  const client = buildClient({ endpoint, region, accessKeyId, secretAccessKey });
+  const client = buildClient({ endpoint, region, accessKeyId, secretAccessKey, rejectUnauthorized });
   const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
   const total = head.ContentLength || 0;
   const etag = head.ETag;
@@ -188,7 +215,18 @@ async function handleDownload(msg) {
       partSize: normalizedPartSize,
       parts: [],
     });
-    parentPort.postMessage({ type: "done", id, total: 0 });
+    parentPort.postMessage({
+      type: "done",
+      id,
+      total: 0,
+      verification: {
+        ok: true,
+        method: "size",
+        expectedSize: 0,
+        actualSize: 0,
+        etag,
+      },
+    });
     return;
   }
 
@@ -267,7 +305,23 @@ async function handleDownload(msg) {
   }
   await Promise.all(running);
 
-  parentPort.postMessage({ type: "done", id, total });
+  const actualSize = fs.statSync(dest).size;
+  if (actualSize !== total) {
+    throw new Error(`Download verification failed: local size ${actualSize} does not match remote size ${total}`);
+  }
+
+  parentPort.postMessage({
+    type: "done",
+    id,
+    total,
+    verification: {
+      ok: true,
+      method: "size",
+      expectedSize: total,
+      actualSize,
+      etag,
+    },
+  });
 }
 
 parentPort.on("message", async (msg) => {

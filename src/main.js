@@ -2,16 +2,20 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require("electron")
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const https = require("https");
 const crypto = require("crypto");
 const { execFile } = require("child_process");
 const { Worker } = require("worker_threads");
+const { pathToFileURL } = require("url");
 const ftp = require("basic-ftp");
+const { NodeHttpHandler } = require("@smithy/node-http-handler");
 const {
   S3Client,
   ListObjectsV2Command,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   CopyObjectCommand,
+  HeadBucketCommand,
   ListBucketsCommand,
   PutObjectCommand,
   AbortMultipartUploadCommand,
@@ -50,6 +54,15 @@ let _schedulingInProgress = false;
 const DEFAULT_MAX_ACTIVE_TRANSFERS = 3;
 const DEFAULT_MAX_ACTIVE_UPLOADS = 2;
 const DEFAULT_MAX_ACTIVE_DOWNLOADS = 2;
+
+if (process.env.S3_SMOKE_TEST === "1") {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  if (process.env.S3_SMOKE_USER_DATA) {
+    app.setPath("userData", process.env.S3_SMOKE_USER_DATA);
+  }
+}
 
 function getMaxActiveTransfers() {
   try {
@@ -119,14 +132,62 @@ function buildS3Client(connection) {
   if (!cfg || !cfg.endpoint || !cfg.accessKeyId || !cfg.secretAccessKey) {
     throw new Error("Missing endpoint or credentials");
   }
-  return new S3Client({
+  const clientOptions = {
     region: cfg.region || "auto",
     endpoint: cfg.endpoint,
     credentials: {
       accessKeyId: cfg.accessKeyId,
       secretAccessKey: cfg.secretAccessKey,
     },
-  });
+  };
+  if (cfg.rejectUnauthorized === false) {
+    clientOptions.requestHandler = new NodeHttpHandler({
+      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+    });
+  }
+  return new S3Client(clientOptions);
+}
+
+function isCertificateChainError(err) {
+  const message = `${err?.message || err || ""}`;
+  const code = `${err?.code || ""}`;
+  return /self[- ]signed|certificate.*chain|unable to verify|UNABLE_TO_VERIFY|SELF_SIGNED/i.test(`${code} ${message}`);
+}
+
+function isAwsEndpoint(endpoint = "") {
+  try {
+    return /(^|\.)amazonaws\.com$/i.test(new URL(endpoint).hostname);
+  } catch (err) {
+    return false;
+  }
+}
+
+async function sendS3Command(connection, command) {
+  const cfg = connection || configStore.getActiveConnection();
+  try {
+    return await buildS3Client(cfg).send(command);
+  } catch (err) {
+    const canBypassCertificateError =
+      isCertificateChainError(err) &&
+      (cfg?.rejectUnauthorized === false || !isAwsEndpoint(cfg?.endpoint));
+    if (canBypassCertificateError) {
+      const previous = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+      try {
+        return await buildS3Client({ ...cfg, rejectUnauthorized: false }).send(command);
+      } finally {
+        if (previous == null) {
+          delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+        } else {
+          process.env.NODE_TLS_REJECT_UNAUTHORIZED = previous;
+        }
+      }
+    }
+    if (isCertificateChainError(err)) {
+      throw new Error(`${err.message}. This endpoint is using a self-signed certificate. Edit the connection, open Advanced Transfer & Safety Settings, uncheck "Verify TLS certificate", save it, then retry.`);
+    }
+    throw err;
+  }
 }
 
 function normalizeFtpRemotePath(input = "/") {
@@ -304,12 +365,14 @@ async function runFtpUpload(transfer, cfg, filePath, remotePath) {
 }
 
 async function listAllBucketObjects({ bucket, prefix = "" }) {
-  const client = buildS3Client();
+  ensureStores();
+  const active = configStore.getActiveConnection();
   const objects = [];
   let continuationToken = undefined;
   do {
     // eslint-disable-next-line no-await-in-loop
-    const res = await client.send(
+    const res = await sendS3Command(
+      active,
       new ListObjectsV2Command({
         Bucket: bucket,
         Prefix: prefix || undefined,
@@ -370,18 +433,63 @@ async function deleteObjectsInBatches(client, bucket, keys) {
 }
 
 function createWindow() {
+  const rendererEntry = path.join(__dirname, "../renderer/index.html");
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 720,
+    show: process.env.S3_SMOKE_TEST !== "1",
     icon: path.join(__dirname, "../build/icon.ico"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     },
   });
 
-  mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (url !== pathToFileURL(rendererEntry).href) {
+      event.preventDefault();
+    }
+  });
+
+  if (process.env.S3_SMOKE_TEST === "1") {
+    mainWindow.webContents.once("did-finish-load", async () => {
+      try {
+        const result = await mainWindow.webContents.executeJavaScript(`
+          (() => {
+            const selectors = [
+              "#connection-select",
+              "#save-config",
+              "#page-dashboard",
+              "#page-explorer",
+              "#page-logs",
+              "#page-connections",
+              "#transfer-body",
+              "#connection-body"
+            ];
+            const missing = selectors.filter((selector) => !document.querySelector(selector));
+            return { ok: missing.length === 0, missing, title: document.title };
+          })()
+        `);
+        if (!result.ok) {
+          console.error(`S3_SMOKE_FAIL ${result.missing.join(",")}`);
+          app.exit(1);
+          return;
+        }
+        console.log(`S3_SMOKE_OK ${result.title}`);
+        app.exit(0);
+      } catch (err) {
+        console.error(`S3_SMOKE_FAIL ${err.message || err}`);
+        app.exit(1);
+      }
+    });
+  }
+
+  mainWindow.loadFile(rendererEntry);
 }
 
 function createAppMenu() {
@@ -560,6 +668,7 @@ function launchTransferWorker(transfer, job, cfg) {
       accessKeyId: cfg.accessKeyId,
       secretAccessKey: cfg.secretAccessKey,
       region: cfg.region || "auto",
+      rejectUnauthorized: cfg.rejectUnauthorized !== false,
       partSize,
       concurrency,
       resumeInfo,
@@ -601,6 +710,7 @@ function launchTransferWorker(transfer, job, cfg) {
       accessKeyId: cfg.accessKeyId,
       secretAccessKey: cfg.secretAccessKey,
       region: cfg.region || "auto",
+      rejectUnauthorized: cfg.rejectUnauthorized !== false,
       partSize: effectivePartSize,
       concurrency,
       resumeInfo,
@@ -791,6 +901,7 @@ function wireWorkerEvents(id, worker, meta) {
       if (transfer) {
         transfer.state = "done";
         transfer.loaded = transfer.total || msg.total;
+        transfer.verification = msg.verification || null;
         transfer.endedAt = new Date().toISOString();
       }
       publishTransferUpdate(transfer);
@@ -1036,7 +1147,10 @@ ipcMain.handle("connection:export", async (_evt, options = {}) => {
   ensureStores();
   const id = typeof options === "string" ? options : options?.id || null;
   const passphrase = typeof options === "object" ? options.passphrase || "" : "";
-  const payload = id ? configStore.exportConnection(id) : configStore.exportConnections();
+  const includeSecrets = Boolean(typeof options === "object" && options.includeSecrets);
+  const payload = id
+    ? configStore.exportConnection(id, { includeSecrets })
+    : configStore.exportConnections({ includeSecrets });
   const namePart = id
     ? safeExportFileName(payload.connections[0]?.name || payload.connections[0]?.endpoint || payload.connections[0]?.host)
     : "connections";
@@ -1054,7 +1168,13 @@ ipcMain.handle("connection:export", async (_evt, options = {}) => {
   }
   const output = passphrase ? encryptConnectionExport(payload, passphrase) : payload;
   fs.writeFileSync(result.filePath, JSON.stringify(output, null, 2), "utf8");
-  return { canceled: false, encrypted: Boolean(passphrase), filePath: result.filePath, count: payload.connections.length };
+  return {
+    canceled: false,
+    encrypted: Boolean(passphrase),
+    includeSecrets,
+    filePath: result.filePath,
+    count: payload.connections.length,
+  };
 });
 ipcMain.handle("connection:import", async (_evt, options = {}) => {
   ensureStores();
@@ -1100,6 +1220,63 @@ ipcMain.handle("connection:delete", (_evt, id) => {
   configStore.removeConnection(id);
   return configStore.getState();
 });
+
+function getConnectionForDiagnostics(id) {
+  ensureStores();
+  if (!id) return configStore.getActiveConnection();
+  const record = Array.isArray(configStore.data?.connections)
+    ? configStore.data.connections.find((conn) => conn.id === id)
+    : null;
+  if (!record) {
+    throw new Error("Connection not found");
+  }
+  return configStore.hydrateConnection(record, { includeSecret: true });
+}
+
+ipcMain.handle("connection:test", async (_evt, options = {}) => {
+  ensureStores();
+  const id = typeof options === "string" ? options : options?.id || null;
+  const checkWrite = Boolean(typeof options === "object" && options.checkWrite);
+  const checks = [];
+  const startedAt = Date.now();
+  try {
+    const conn = getConnectionForDiagnostics(id);
+    if (!conn) throw new Error("No active connection");
+    if (conn.type === "ftp" || conn.type === "ftps") {
+      await withFtpClient(conn, async (client, cfg) => {
+        checks.push({ name: "login", ok: true, detail: `${cfg.type.toUpperCase()} login accepted` });
+        const remotePath = normalizeFtpRemotePath(cfg.remotePath || "/");
+        await client.list(remotePath);
+        checks.push({ name: "list", ok: true, detail: `Listed ${remotePath}` });
+      });
+      return { ok: true, type: conn.type, checks, durationMs: Date.now() - startedAt };
+    }
+
+    validateIpcPayload(conn, ["endpoint", "accessKeyId", "secretAccessKey", "bucket"]);
+    const client = buildS3Client(conn);
+    await client.send(new HeadBucketCommand({ Bucket: conn.bucket }));
+    checks.push({ name: "bucket", ok: true, detail: `Bucket is reachable: ${conn.bucket}` });
+    await client.send(new ListObjectsV2Command({ Bucket: conn.bucket, MaxKeys: 1 }));
+    checks.push({ name: "list", ok: true, detail: "List permission verified" });
+    if (checkWrite) {
+      const key = `.s3-desktop-diagnostic-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+      await client.send(new PutObjectCommand({ Bucket: conn.bucket, Key: key, Body: "" }));
+      await client.send(new DeleteObjectCommand({ Bucket: conn.bucket, Key: key }));
+      checks.push({ name: "write", ok: true, detail: "Temporary object write/delete verified" });
+    }
+    return { ok: true, type: "s3", bucket: conn.bucket, checks, durationMs: Date.now() - startedAt };
+  } catch (err) {
+    checks.push({
+      name: "error",
+      ok: false,
+      detail: normalizeError(err, "Connection test failed"),
+      requestId: err?.$metadata?.requestId || "",
+      httpStatus: err?.$metadata?.httpStatusCode || "",
+    });
+    return { ok: false, checks, durationMs: Date.now() - startedAt };
+  }
+});
+
 ipcMain.handle("connection:listAvailableBuckets", async () => {
   try {
     const client = buildS3Client();
@@ -1274,6 +1451,9 @@ ipcMain.handle("local:deleteEntry", async (_evt, payload) => {
   const fullPath = payload.fullPath;
   const permanent = Boolean(payload?.permanent);
   if (permanent) {
+    if (payload?.permanentConfirm !== fullPath) {
+      throw new Error("Permanent local delete requires an explicit path confirmation.");
+    }
     await fsp.rm(fullPath, { recursive: true, force: true });
     return { success: true, mode: "permanent" };
   }
@@ -1340,8 +1520,8 @@ ipcMain.handle("bucket:list", async (_evt, payload) => {
     const delimiter = payload?.delimiter || undefined;
     if (!bucket) throw new Error("Bucket is required");
 
-    const client = buildS3Client();
-    const res = await client.send(
+    const res = await sendS3Command(
+      active,
       new ListObjectsV2Command({
         Bucket: bucket,
         Prefix: prefix || undefined,

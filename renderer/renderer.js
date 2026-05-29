@@ -2,7 +2,7 @@
 // Application bootstrap, navigation, and event listener wiring.
 // All feature logic lives in the renderer-*.js modules loaded before this file.
 
-// ── IPC: live transfer updates from main process ──────────────────────────────
+// -- IPC: live transfer updates from main process ------------------------------
 window.api.onTransferUpdate((transfer) => {
   transferStore.upsert(transfer);
   renderTransfers();
@@ -18,7 +18,7 @@ window.api.onTransferUpdate((transfer) => {
   }
 });
 
-// ── Connection settings form ───────────────────────────────────────────────────
+// -- Connection settings form ---------------------------------------------------
 function getSelectedConnectionType() {
   if (els.ftpConnectionLayout && !els.ftpConnectionLayout.hidden) {
     return els.ftpProtocol?.value === "ftps" ? "ftps" : "ftp";
@@ -64,6 +64,7 @@ function buildConnectionPayload() {
     maxActiveUploads: Math.max(1, Math.min(16, Number(els.maxActiveUploads?.value) || 2)),
     maxActiveDownloads: Math.max(1, Math.min(16, Number(els.maxActiveDownloads?.value) || 2)),
     maxRetries: Math.max(0, Math.min(10, Number(els.maxRetries?.value) || 3)),
+    rejectUnauthorized: els.s3RejectUnauthorized?.checked !== false,
     softDeleteEnabled: Boolean(els.softDeleteEnabled?.checked),
     trashPrefix: (els.trashPrefix?.value || ".trash/").trim() || ".trash/",
     name: els.connectionName.value.trim(),
@@ -108,7 +109,7 @@ if (els.ftpProtocol) {
   });
 }
 
-// ── Dashboard upload form ──────────────────────────────────────────────────────
+// -- Dashboard upload form ------------------------------------------------------
 document.getElementById("pick-upload").addEventListener("click", async () => {
   const file = await window.api.pickFile();
   if (file) {
@@ -144,7 +145,7 @@ if (els.concurrency) {
   });
 }
 
-// ── Explorer filter inputs ─────────────────────────────────────────────────────
+// -- Explorer filter inputs -----------------------------------------------------
 if (localExplorerFilterInput) {
   localExplorerFilterInput.addEventListener("input", () => {
     explorerState.localFilter = localExplorerFilterInput.value.trim();
@@ -160,7 +161,7 @@ if (bucketExplorerFilterInput) {
   });
 }
 
-// ── Global drag-and-drop (dashboard upload drop zone) ────────────────────────
+// -- Global drag-and-drop (dashboard upload drop zone) ------------------------
 window.addEventListener("dragover", (e) => {
   e.preventDefault();
   if (dropzone) dropzone.classList.add("dragging");
@@ -190,7 +191,7 @@ document.getElementById("start-upload").addEventListener("click", async () => {
   await startUploadTransfer(uploadFilePath, els.uploadKey.value);
 });
 
-// ── Dashboard download form ────────────────────────────────────────────────────
+// -- Dashboard download form ----------------------------------------------------
 document.getElementById("pick-download-folder").addEventListener("click", async () => {
   const folder = await window.api.pickDir();
   if (folder) {
@@ -228,7 +229,7 @@ document.getElementById("start-download").addEventListener("click", async () => 
   }
 });
 
-// ── Transfer queue controls ────────────────────────────────────────────────────
+// -- Transfer queue controls ----------------------------------------------------
 document.getElementById("refresh-btn").addEventListener("click", refreshTransfers);
 document.getElementById("clear-finished").addEventListener("click", async () => {
   const list = await window.api.clearFinishedTransfers();
@@ -242,7 +243,7 @@ if (transferSearchEl) {
   transferSearchEl.addEventListener("input", () => renderTransfers());
 }
 
-// ── Dashboard bucket controls ──────────────────────────────────────────────────
+// -- Dashboard bucket controls --------------------------------------------------
 document.getElementById("bucket-refresh").addEventListener("click", () => refreshBucket({ append: false }));
 if (bucketUpBtn) {
   bucketUpBtn.addEventListener("click", () => {
@@ -302,7 +303,7 @@ if (bucketDeleteSelectedBtn) {
   });
 }
 
-// ── Connection selector ───────────────────────────────────────────────────────
+// -- Connection selector -------------------------------------------------------
 loadConnectionBtn.addEventListener("click", async () => {
   const selectedId = connectionSelect.value;
   if (!selectedId) return;
@@ -321,7 +322,7 @@ if (toggleThemeBtn) {
   toggleThemeBtn.addEventListener("click", toggleTheme);
 }
 
-// ── Page navigation ───────────────────────────────────────────────────────────
+// -- Page navigation -----------------------------------------------------------
 function setActivePage(page) {
   Object.entries(pages).forEach(([key, node]) => {
     if (!node) return;
@@ -350,7 +351,7 @@ document.getElementById("nav-logs").addEventListener("click", () => {
   renderLogs();
 });
 
-// ── Log panel controls ────────────────────────────────────────────────────────
+// -- Log panel controls --------------------------------------------------------
 document.getElementById("clear-logs").addEventListener("click", () => {
   logs.length = 0;
   renderLogs();
@@ -421,7 +422,7 @@ if (copyErrorDetailsBtn) {
   });
 }
 
-// ── Connections page controls ─────────────────────────────────────────────────
+// -- Connections page controls -------------------------------------------------
 document.getElementById("connection-refresh").addEventListener("click", async () => {
   const state = await window.api.listConnections();
   renderConnections(state);
@@ -430,11 +431,17 @@ document.getElementById("connection-refresh").addEventListener("click", async ()
 if (connectionExportBtn) {
   connectionExportBtn.addEventListener("click", async () => {
     try {
-      const encrypt = await showConfirmPrompt({
-        title: "Encrypt export file?",
-        message: "Use a passphrase to protect the exported connection secrets.",
+      const includeSecrets = await showConfirmPrompt({
+        title: "Export saved secrets?",
+        message: "Export without secrets is safer and works for sharing connection settings. Include secrets only when you need a restorable backup.",
+        okLabel: "Include Secrets",
+        cancelLabel: "No Secrets",
+      });
+      const encrypt = includeSecrets && await showConfirmPrompt({
+        title: "Encrypt secret export?",
+        message: "Secret-bearing exports should be protected with a passphrase.",
         okLabel: "Encrypt",
-        cancelLabel: "Export without encryption",
+        cancelLabel: "Export Unencrypted",
       });
       const passphrase = encrypt
         ? await showInputPrompt({
@@ -445,9 +452,9 @@ if (connectionExportBtn) {
           })
         : "";
       if (encrypt && !passphrase) return;
-      const result = await window.api.exportConnections({ passphrase });
+      const result = await window.api.exportConnections({ includeSecrets, passphrase });
       if (result?.canceled) return;
-      addLog(`Exported ${result.count || 0} connection(s)${result.encrypted ? " with encryption" : ""} to ${result.filePath}`);
+      addLog(`Exported ${result.count || 0} connection(s)${result.includeSecrets ? " with secrets" : " without secrets"}${result.encrypted ? " and encryption" : ""} to ${result.filePath}`);
     } catch (err) {
       addLog(`Export failed: ${err.message}`);
     }
@@ -500,7 +507,7 @@ document.getElementById("connection-add").addEventListener("click", async () => 
   els.connectionName.focus();
 });
 
-// ── Local browser controls ────────────────────────────────────────────────────
+// -- Local browser controls ----------------------------------------------------
 if (localPathGoBtn) {
   localPathGoBtn.addEventListener("click", () => {
     loadLocalExplorer(localPathInput?.value);
@@ -680,7 +687,7 @@ document.querySelectorAll("[data-local-sort]").forEach((th) => {
   });
 });
 
-// ── Bucket explorer controls ──────────────────────────────────────────────────
+// -- Bucket explorer controls --------------------------------------------------
 if (bucketPrefixGoBtn) {
   bucketPrefixGoBtn.addEventListener("click", () => {
     loadBucketExplorer(bucketExplorerPrefixInput?.value || "");
@@ -883,7 +890,7 @@ document.querySelectorAll("[data-bucket-sort]").forEach((th) => {
   });
 });
 
-// ── Explorer split pane ───────────────────────────────────────────────────────
+// -- Explorer split pane -------------------------------------------------------
 if (explorerDivider && explorerSplit) {
   let isDragging = false;
 
@@ -982,7 +989,7 @@ if (explorerDivider && explorerSplit) {
   });
 }
 
-// ── Bucket explorer dropzone ──────────────────────────────────────────────────
+// -- Bucket explorer dropzone --------------------------------------------------
 if (bucketExplorerDropzone) {
   const clearDragState = () => bucketExplorerDropzone.classList.remove("dragging");
   bucketExplorerDropzone.addEventListener("dragover", (e) => {
@@ -1013,7 +1020,7 @@ if (bucketExplorerDropzone) {
   });
 }
 
-// ── Bootstrap ─────────────────────────────────────────────────────────────────
+// -- Bootstrap -----------------------------------------------------------------
 async function bootstrap() {
   loadInitialTheme();
   await loadLocalRoots();

@@ -1,8 +1,8 @@
 // renderer-utils.js
 // Shared DOM references, global state, constants, and pure utility functions.
-// Must be loaded first — all other renderer modules depend on these globals.
+// Must be loaded first - all other renderer modules depend on these globals.
 
-// ── DOM element references ────────────────────────────────────────────────────
+// -- DOM element references ----------------------------------------------------
 const transferBody = document.getElementById("transfer-body");
 const bucketBody = document.getElementById("bucket-body");
 const bucketMoreBtn = document.getElementById("bucket-more");
@@ -60,7 +60,7 @@ const pages = {
   connections: document.getElementById("page-connections"),
 };
 
-// ── Global mutable state ──────────────────────────────────────────────────────
+// -- Global mutable state ------------------------------------------------------
 let uploadFilePath = "";
 let bucketNextToken = null;
 let dashboardBucketPrefix = "";
@@ -119,7 +119,7 @@ const sortState = {
   bucket: { field: "name", direction: "asc" },
 };
 
-// ── Form element references ───────────────────────────────────────────────────
+// -- Form element references ---------------------------------------------------
 const els = {
   endpoint: document.getElementById("endpoint"),
   accessKeyId: document.getElementById("accessKeyId"),
@@ -140,6 +140,7 @@ const els = {
   s3ConnectionLayout: document.getElementById("s3-connection-layout"),
   ftpConnectionLayout: document.getElementById("ftp-connection-layout"),
   s3AdvancedSettings: document.getElementById("s3-advanced-settings"),
+  s3RejectUnauthorized: document.getElementById("s3-reject-unauthorized"),
   ftpProtocol: document.getElementById("ftp-protocol"),
   ftpHost: document.getElementById("ftp-host"),
   ftpPort: document.getElementById("ftp-port"),
@@ -179,7 +180,7 @@ let isConnectionPanelCollapsed = false;
 const transferStore = window.S3TransferStore.createTransferStore();
 const { showInputPrompt, showConfirmPrompt, confirmDeletion } = window.S3Dialogs;
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// -- Constants -----------------------------------------------------------------
 const MB = 1024 * 1024;
 const TRANSFER_LIMITS = {
   minPartSizeMb: 5,
@@ -193,7 +194,7 @@ const EXPLORER_MIN_PANE_WIDTH = 320;
 const EXPLORER_MIN_RATIO = 0.2;
 const EXPLORER_MAX_RATIO = 0.8;
 
-// ── Secret input state ────────────────────────────────────────────────────────
+// -- Secret input state --------------------------------------------------------
 function setSecretInputState(hasSecret) {
   if (!els.secretAccessKey) return;
   els.secretAccessKey.dataset.hasSecret = hasSecret ? "true" : "false";
@@ -204,7 +205,7 @@ function setSecretInputState(hasSecret) {
 }
 setSecretInputState(false);
 
-// ── Theme ─────────────────────────────────────────────────────────────────────
+// -- Theme ---------------------------------------------------------------------
 function applyTheme(theme) {
   const resolved = theme === "dark" ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", resolved);
@@ -239,7 +240,7 @@ function toggleTheme() {
   }
 }
 
-// ── Transfer settings validation ──────────────────────────────────────────────
+// -- Transfer settings validation ----------------------------------------------
 function validateTransferSettings({ quiet = false } = {}) {
   const partSizeMb = Number(els.partSize.value);
   const concurrency = Number(els.concurrency.value);
@@ -277,7 +278,7 @@ function validateTransferSettings({ quiet = false } = {}) {
   };
 }
 
-// ── Utility functions ─────────────────────────────────────────────────────────
+// -- Utility functions ---------------------------------------------------------
 function baseName(p) {
   if (!p) return "";
   return p.split(/[\\/]/).pop();
@@ -313,7 +314,7 @@ function showToast(message, variant = "info", timeout = 3500) {
   }, timeout);
 }
 
-// ── Breadcrumb rendering ──────────────────────────────────────────────────────
+// -- Breadcrumb rendering ------------------------------------------------------
 function renderBreadcrumb(container, crumbs, onClick) {
   if (!container) return;
   container.innerHTML = "";
@@ -331,7 +332,7 @@ function renderBreadcrumb(container, crumbs, onClick) {
     container.appendChild(btn);
     if (index < crumbs.length - 1) {
       const divider = document.createElement("span");
-      divider.innerText = "›";
+      divider.innerText = ">";
       divider.style.margin = "0 2px";
       container.appendChild(divider);
     }
@@ -409,7 +410,7 @@ function renderDashboardBucketBreadcrumb(prefix) {
   );
 }
 
-// ── Local drive helpers ───────────────────────────────────────────────────────
+// -- Local drive helpers -------------------------------------------------------
 function inferLocalRoot(fullPath) {
   const normalized = String(fullPath || "").replace(/\//g, "\\");
   if (/^[A-Za-z]:\\/.test(normalized)) {
@@ -455,7 +456,7 @@ async function loadLocalRoots() {
   renderLocalDriveOptions();
 }
 
-// ── DOM creation helpers ──────────────────────────────────────────────────────
+// -- DOM creation helpers ------------------------------------------------------
 function createEntryIcon(type) {
   const span = document.createElement("span");
   span.className = `entry-icon ${type === "folder" ? "folder" : "file"}`;
@@ -465,7 +466,7 @@ function createEntryIcon(type) {
 function createDragGrip(entry) {
   const grip = document.createElement("span");
   grip.className = "drag-grip";
-  grip.innerText = "⋮";
+  grip.innerText = "::";
   grip.title = `Drag ${entry?.name || "item"}`;
   grip.setAttribute("aria-label", `Drag ${entry?.name || "item"}`);
   return grip;

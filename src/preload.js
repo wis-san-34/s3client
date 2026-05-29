@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("api", {
   exportConnections: (options) => ipcRenderer.invoke("connection:export", options),
   importConnections: (options) => ipcRenderer.invoke("connection:import", options),
   listAvailableBuckets: () => ipcRenderer.invoke("connection:listAvailableBuckets"),
+  testConnection: (options) => ipcRenderer.invoke("connection:test", options),
   deleteConnection: (id) => ipcRenderer.invoke("connection:delete", id),
   listFtp: (payload) => ipcRenderer.invoke("ftp:list", payload),
   pickFile: () => ipcRenderer.invoke("file:pick"),

@@ -1,11 +1,11 @@
-Build version 0.3.3 of a Windows desktop app called "S3 Desktop Client" using Electron, Node.js, the AWS SDK for JavaScript, and basic-ftp.
+Build version 0.3.4 of a Windows desktop app called "S3 Desktop Client" using Electron, Node.js, the AWS SDK for JavaScript, and basic-ftp.
 
 The app should let users upload, download, browse, and manage files in Amazon S3, S3-compatible storage providers such as Cloudflare R2, MinIO, Backblaze B2, custom S3 endpoints, FTP servers, and FTPS servers.
 
 Core requirements:
 - Electron desktop app with a clean, professional Windows-style interface.
 - Support multiple saved S3, FTP, and FTPS connections.
-- S3 connections should include connection name, endpoint URL, access key ID, secret access key, default bucket, region defaulting to "auto", multipart part size, transfer concurrency, max active transfers, max active uploads, max active downloads, max retries, and optional soft-delete mode with configurable trash prefix.
+- S3 connections should include connection name, endpoint URL, access key ID, secret access key, default bucket, region defaulting to "auto", TLS certificate verification control for self-signed/private endpoints, multipart part size, transfer concurrency, max active transfers, max active uploads, max active downloads, max retries, and optional soft-delete mode with configurable trash prefix.
 - FTP/FTPS connections should include connection name, host, port, username, password, default remote path, FTPS mode, TLS certificate verification, legacy TLS compatibility, and data channel encryption controls.
 - Store secrets securely using Electron safeStorage and OS credential vault support where available.
 - Never store plaintext secrets on disk.
@@ -36,12 +36,15 @@ Main screens:
    - Range-based resumable downloads for S3
    - FTP/FTPS uploads through FTP operations instead of S3 multipart workers
    - Pause, resume, cancel, retry, prioritize, and reorder queued transfers where supported
-   - Show progress, status, errors, active counts, and finished transfers
+   - Show progress, speed, ETA, verification status, errors, active counts, and finished transfers
+   - Verify completed S3 uploads/downloads by object/file size and surface verification failures
    - Persist transfer state so interrupted S3 transfers can resume after restart
 
 4. Connections
    - List saved connections
    - Add, edit, delete, search, and activate connections
+   - Test connections with S3 bucket/list checks, optional S3 write/delete checks, and FTP/FTPS login/list checks
+   - Export connections without secrets by default; require explicit opt-in to export saved secrets and support passphrase encryption
    - Display saved count and active connection
 
 5. Logs
@@ -53,17 +56,18 @@ Main screens:
 Technical requirements:
 - Use Electron main/preload/renderer separation.
 - Keep nodeIntegration disabled and contextIsolation enabled.
+- Use Electron sandboxing, deny untrusted navigation/window opens, and include a restrictive Content Security Policy.
 - Expose safe IPC APIs through preload.
 - Use @aws-sdk/client-s3 for all S3 operations.
 - Use basic-ftp for FTP/FTPS operations.
-- Support S3-compatible endpoints.
+- Support S3-compatible endpoints, including private/self-signed certificate deployments through per-connection TLS verification settings and guarded certificate-error retries for non-AWS endpoints.
 - Support FTP, explicit FTPS, implicit FTPS, legacy TLS compatibility, and optional unencrypted FTPS data channels for older servers.
 - Implement multipart uploads and download resume logic in worker threads so the UI stays responsive.
 - Persist app data under the Electron userData directory.
 - Use JSON stores for config, resume state, and transfer history.
 - Clamp multipart settings to valid S3 limits.
 - Support batch delete, object rename via copy/delete, bucket folder creation, and optional soft delete by copying objects to a trash prefix before deletion.
-- Include tests for transfer queue/shared logic, store behavior, resume logic, and main utility validation.
+- Include tests for transfer queue/shared logic, store behavior, resume logic, main utility validation, and renderer smoke wiring. Keep the full Electron smoke test available behind an opt-in environment variable for systems with a usable display/GPU environment.
 - Keep npm dependencies patched against known advisories, including XML serialization/injection issues in @xmldom/xmldom, fast-xml-parser, fast-xml-builder, and the ip-address HTML-emitting method XSS advisory.
 
 Design:

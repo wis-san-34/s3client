@@ -2,7 +2,7 @@
 // Dashboard page: bucket object table, metrics, upload/download forms, refresh.
 // Depends on: renderer-utils.js, renderer-logs.js, renderer-connections.js, renderer-explorer.js
 
-// ── Multi-select state for bulk delete ────────────────────────────────────────
+// -- Multi-select state for bulk delete ----------------------------------------
 let dashboardSelectedKeys = new Set();
 
 function updateDashboardSelectionToolbar() {
@@ -39,7 +39,7 @@ function clearDashboardSelection() {
   updateDashboardSelectionToolbar();
 }
 
-// ── Dashboard bucket metrics bar ──────────────────────────────────────────────
+// -- Dashboard bucket metrics bar ----------------------------------------------
 function updateBucketMetrics(metrics) {
   if (!metricBucketEl) return;
   if (!metrics) {
@@ -53,7 +53,7 @@ function updateBucketMetrics(metrics) {
   metricSizeEl.innerText = metrics.totalSize != null ? fmtBytes(metrics.totalSize) : "-";
 }
 
-// ── Dashboard bucket table ────────────────────────────────────────────────────
+// -- Dashboard bucket table ----------------------------------------------------
 function renderBucketRows(items, { append = false } = {}) {
   if (!append) bucketBody.innerHTML = "";
   const startIndex = append ? bucketBody.children.length : 0;
@@ -255,7 +255,7 @@ function buildDashboardBucketEntries({ prefixes = [], items = [] }, currentPrefi
   return entries;
 }
 
-// ── Dashboard bucket refresh ───────────────────────────────────────────────────
+// -- Dashboard bucket refresh ---------------------------------------------------
 async function refreshBucket({ append = false } = {}) {
   const activeConn = getActiveConnection();
   if (isFtpConnection(activeConn)) {
@@ -356,7 +356,7 @@ async function refreshBucket({ append = false } = {}) {
   }
 }
 
-// ── Dashboard upload/download actions ─────────────────────────────────────────
+// -- Dashboard upload/download actions -----------------------------------------
 async function queueDashboardUploadsFromPaths(paths) {
   const activeConn = getActiveConnection();
   const bucket = els.bucket.value.trim();

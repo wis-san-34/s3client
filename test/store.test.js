@@ -57,7 +57,7 @@ test("TransferHistoryStore keeps latest entries and clears terminal states", (t)
   assert.deepEqual(store.list().map((entry) => entry.id), ["4", "2"]);
 });
 
-// ── ResumeStore ───────────────────────────────────────────────────────────────
+// -- ResumeStore ---------------------------------------------------------------
 
 test("ResumeStore stores, retrieves, and clears upload resume data", (t) => {
   const dir = createTempDir();
@@ -114,7 +114,7 @@ test("ResumeStore persists data across instances", (t) => {
   assert.deepEqual(new ResumeStore(filePath).getUpload(info), payload);
 });
 
-// ── ConfigStore edge cases ────────────────────────────────────────────────────
+// -- ConfigStore edge cases ----------------------------------------------------
 
 test("ConfigStore.getActiveConnection returns a legacy-shaped object when no connections exist", (t) => {
   const dir = createTempDir();
@@ -236,6 +236,7 @@ test("ConfigStore exports portable connections with secrets and imports them", (
     accessKeyId: "KEY",
     secretAccessKey: "SECRET",
     bucket: "bucket-a",
+    rejectUnauthorized: false,
   });
   source.upsertConnection({
     type: "ftps",
@@ -247,10 +248,15 @@ test("ConfigStore exports portable connections with secrets and imports them", (
   });
   source.setActiveConnection(s3.id);
 
-  const exported = source.exportConnections();
+  const publicExport = source.exportConnections();
+  assert.equal(publicExport.connections[0].secretAccessKey, undefined);
+  assert.equal(publicExport.connections[1].password, undefined);
+
+  const exported = source.exportConnections({ includeSecrets: true });
   assert.equal(exported.format, "s3-desktop-client-connections");
   assert.equal(exported.connections.length, 2);
   assert.equal(exported.connections[0].secretAccessKey, "SECRET");
+  assert.equal(exported.connections[0].rejectUnauthorized, false);
   assert.equal(exported.connections[1].password, "FTP_SECRET");
   assert.equal(exported.connections[1].secretAccessKeyEncrypted, undefined);
 
@@ -261,6 +267,7 @@ test("ConfigStore exports portable connections with secrets and imports them", (
   const state = target.getState();
   assert.equal(state.connections.length, 2);
   assert.equal(state.activeConnectionId, s3.id);
+  assert.equal(target.getActiveConnection({ includeSecret: false }).rejectUnauthorized, false);
   assert.equal(target.getActiveConnection({ includeSecret: true }).secretAccessKey, "SECRET");
   assert.equal(
     target.hydrateConnection(target.data.connections.find((c) => c.type === "ftps"), { includeSecret: true }).secretAccessKey,
@@ -290,14 +297,18 @@ test("ConfigStore exports one selected connection", (t) => {
     secretAccessKey: "SECRET2",
   });
 
-  const exported = store.exportConnection(second.id);
+  const publicExport = store.exportConnection(second.id);
+  assert.equal(publicExport.connections.length, 1);
+  assert.equal(publicExport.connections[0].secretAccessKey, undefined);
+
+  const exported = store.exportConnection(second.id, { includeSecrets: true });
   assert.equal(exported.connections.length, 1);
   assert.equal(exported.activeConnectionId, second.id);
   assert.equal(exported.connections[0].name, "Second");
   assert.equal(exported.connections[0].secretAccessKey, "SECRET2");
 });
 
-// ── TransferHistoryStore edge cases ───────────────────────────────────────────
+// -- TransferHistoryStore edge cases -------------------------------------------
 
 test("TransferHistoryStore.upsert ignores entries without an id", (t) => {
   const dir = createTempDir();
@@ -319,8 +330,8 @@ test("TransferHistoryStore.upsert sanitizes entry fields and defaults missing va
   const entry = store.list()[0];
   assert.equal(entry.id, "1");
   assert.equal(entry.state, "running");
-  assert.equal(entry.loaded, 0);      // null → 0
-  assert.equal(entry.retryCount, 0);  // NaN → 0
+  assert.equal(entry.loaded, 0);      // null -> 0
+  assert.equal(entry.retryCount, 0);  // NaN -> 0
   assert.equal(entry.queuePriority, "normal");
 });
 
